@@ -1,0 +1,3055 @@
+import React, { useRef, useEffect, useState } from 'react';
+import { GameState, BossType, Player, Boss, Bullet, Particle, Vector2, Upgrade, SecondaryWeaponType, SoulColor } from '../types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX } from '../constants';
+import { Rocket, Skull, Shield, Zap, Heart, RefreshCw, Crosshair, AlertTriangle, Lock, Unlock, Plus, Database, Target, Cpu, ArrowUpCircle, Ghost } from 'lucide-react';
+
+const useInput = () => {
+    const keys = useRef<Set<string>>(new Set());
+    const mouse = useRef<Vector2>({ x: 0, y: 0 });
+    const mouseDown = useRef(false);
+    const rightMouseDown = useRef(false);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => keys.current.add(e.code);
+        const handleKeyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
+        const handleMouseDown = (e: MouseEvent) => {
+            if (e.button === 0) mouseDown.current = true;
+            if (e.button === 2) rightMouseDown.current = true;
+        };
+        const handleMouseUp = (e: MouseEvent) => {
+            if (e.button === 0) mouseDown.current = false;
+            if (e.button === 2) rightMouseDown.current = false;
+        };
+        const handleContextMenu = (e: MouseEvent) => {
+            e.preventDefault();
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('contextmenu', handleContextMenu);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('mousedown', handleMouseDown);
+            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('contextmenu', handleContextMenu);
+        };
+    }, []);
+
+    return { keys, mouse, mouseDown, rightMouseDown };
+};
+
+export const GameCanvas: React.FC = () => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const { keys, mouseDown, rightMouseDown } = useInput();
+
+    // Game State Refs
+    const gameState = useRef<GameState>(GameState.MENU);
+    const player = useRef<Player>({
+        pos: { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 100 },
+        size: 8,
+        color: COLORS.player,
+        vel: { x: 0, y: 0 },
+        hp: PLAYER_BASE_STATS.hp,
+        maxHp: PLAYER_BASE_STATS.hp,
+        speed: PLAYER_BASE_STATS.speed,
+        dashCooldown: PLAYER_BASE_STATS.dashCooldown,
+        dashTimer: 0,
+        isDashing: false,
+        invincibilityTimer: 0,
+        shootCooldown: PLAYER_BASE_STATS.fireRate,
+        damage: PLAYER_BASE_STATS.damage,
+        projectileSpeed: PLAYER_BASE_STATS.projectileSpeed,
+        projectileSize: PLAYER_BASE_STATS.projectileSize,
+        slowTimer: 0,
+        invertedControls: false,
+        screenRotation: 0,
+        playAreaScale: 1.0,
+        secondaryWeapon: 'NONE',
+        secondaryWeaponLevel: 0,
+        secondaryCooldownTimer: 0,
+        secondaryCooldownMax: 0,
+        secondaryDamageMult: 1,
+        activeDronesDuration: 0,
+        droneChargeCount: 0,
+        beamDuration: 0,
+        shieldDuration: 0,
+        chargeTimer: 0,
+        isCharging: false,
+
+        // Phase 2 Init
+        isSoulMode: false,
+        gravityDir: { x: 0, y: 1 },
+        isGrounded: false,
+        jumpPower: SOUL_PHYSICS.jumpPower,
+        krTimer: 0,
+        krDamageAccumalator: 0
+    });
+
+    const boss = useRef<Boss | null>(null);
+    const bossCounters = useRef<Record<string, number>>({});
+    const bullets = useRef<Bullet[]>([]);
+    const particles = useRef<Particle[]>([]);
+    const frameCount = useRef(0);
+    const shakeIntensity = useRef(0);
+    const currentBossIndex = useRef(0);
+    const hudGlitch = useRef(0);
+
+    // Chapter 2 State
+    const ch2SoulColor = useRef<SoulColor>('RED');
+    const ch2BoxW = useRef(CH2_BOX.baseW);
+    const ch2BoxH = useRef(CH2_BOX.baseH);
+    const ch2BoxOffsetX = useRef(0);
+    const ch2ColorPhaseTimer = useRef(0);
+    const ch2FightWindowTimer = useRef(0);
+    const ch2IsFightAvailable = useRef(false);
+    const ch2GlitchIntensity = useRef(0);
+
+    // UI State
+    const [uiState, setUiState] = useState<GameState>(GameState.MENU);
+    const [bossHp, setBossHp] = useState({ current: 0, max: 100 });
+    const [playerHp, setPlayerHp] = useState({ current: 0, max: 100 });
+    const [availableUpgrades, setAvailableUpgrades] = useState<Upgrade[]>([]);
+    const [bossName, setBossName] = useState("");
+    const [bossModifiers, setBossModifiers] = useState<string[]>([]);
+    const [collectedUpgrades, setCollectedUpgrades] = useState<{ upgrade: Upgrade; count: number }[]>([]);
+    const [deathsUntilReset, setDeathsUntilReset] = useState(10);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [passwordInput, setPasswordInput] = useState('');
+    const [loginError, setLoginError] = useState(false);
+    const [phase2Unlocked, setPhase2Unlocked] = useState(false);
+    const [adminWeaponLevel, setAdminWeaponLevel] = useState(0);
+    const [godModeEnabled, setGodModeEnabled] = useState(false);
+    const isAdminAuthenticated = useRef(false);
+    const secretRiftActive = useRef(false);
+    const secretSequence = useRef<string[]>([]);
+    const ch1SecondarySeenCount = useRef(0);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = ['DOWN', 'DOWN', 'RIGHT', 'RIGHT', 'UP'];
+            let key = '';
+            if (e.code === 'ArrowDown' || e.code === 'KeyS') key = 'DOWN';
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') key = 'RIGHT';
+            if (e.code === 'ArrowUp' || e.code === 'KeyW') key = 'UP';
+
+            if (key) {
+                secretSequence.current.push(key);
+                if (secretSequence.current.length > target.length) {
+                    secretSequence.current.shift();
+                }
+                if (JSON.stringify(secretSequence.current) === JSON.stringify(target)) {
+                    secretRiftActive.current = true;
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    useEffect(() => {
+        // Check persistence
+        const unlocked = localStorage.getItem('boss_rush_phase2_unlocked') === 'true';
+        if (unlocked) setPhase2Unlocked(true);
+    }, []);
+
+    const spawnParticles = (pos: Vector2, color: string, count: number, speed: number) => {
+        // Optimization: Limit max particles based on game intensity
+        const limit = boss.current?.type === BossType.AZATHOTH ? 300 : 500;
+        if (particles.current.length > limit) return;
+
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const v = Math.random() * speed;
+            particles.current.push({
+                pos: { ...pos },
+                vel: { x: Math.cos(angle) * v, y: Math.sin(angle) * v },
+                size: Math.random() * 3 + 1,
+                color: color,
+                life: 1.0,
+                maxLife: 1.0,
+                decay: 0.02 + Math.random() * 0.03
+            });
+        }
+    };
+
+    const initBoss = (index: number) => {
+        const configIndex = index % BOSS_CONFIGS.length;
+        const config = BOSS_CONFIGS[configIndex];
+
+        if (!config) {
+            gameState.current = GameState.VICTORY;
+            setUiState(GameState.VICTORY);
+            return;
+        }
+
+        setBossName(config.name);
+
+        // Scaling Logic
+        const encounters = bossCounters.current[config.name] || 0;
+        const hpMultiplier = 1 + (Math.floor(encounters / 2) * 0.10);
+        const scaledHp = Math.floor(config.hp * hpMultiplier);
+
+        bossCounters.current[config.name] = encounters + 1;
+
+        const activeMods = [];
+        if (hpMultiplier > 1) {
+            activeMods.push(`VETERAN SCALE: HP +${Math.round((hpMultiplier - 1) * 100)}%`);
+        }
+        setBossModifiers(activeMods);
+
+        player.current.screenRotation = 0;
+        player.current.invertedControls = false;
+        player.current.playAreaScale = 1.0;
+        hudGlitch.current = 0;
+
+        boss.current = {
+            type: configIndex as BossType,
+            pos: { x: CANVAS_WIDTH / 2, y: 100 },
+            size: config.size,
+            color: config.color,
+            hp: scaledHp,
+            maxHp: scaledHp,
+            phase: 1,
+            attackTimer: 0,
+            state: 'IDLE',
+            angle: 0,
+            name: config.name,
+            description: "A formidable foe.",
+            slowTimer: 0,
+            freezeTimer: 0,
+            modifiers: { damage: 1, fireRate: 1, moveSpeed: 1 },
+            tentacles: configIndex === 4 ? Array(8).fill(0).map((_, i) => ({ angle: (Math.PI * 2 / 8) * i, length: 0, phase: i })) : undefined,
+            realityGlitch: 0
+        };
+    };
+
+    const startGame = (startAtPhase2: boolean = false) => {
+        ch1SecondarySeenCount.current = 0;
+        let nextUpgrades = [...collectedUpgrades];
+        let nextDeaths = deathsUntilReset;
+
+        if (gameState.current === GameState.MENU) {
+            nextUpgrades = [];
+            nextDeaths = 10;
+            bossCounters.current = {};
+        } else if (gameState.current === GameState.GAME_OVER) {
+            nextDeaths -= 1;
+            if (nextDeaths <= 0) {
+                nextUpgrades = [];
+                nextDeaths = 10;
+                bossCounters.current = {};
+            }
+        } else if (gameState.current === GameState.VICTORY) {
+            nextDeaths = 10;
+        } else if (gameState.current === GameState.ADMIN) {
+            nextDeaths = 10;
+            bossCounters.current = {};
+        }
+
+        setCollectedUpgrades(nextUpgrades);
+        setDeathsUntilReset(nextDeaths);
+
+        player.current = {
+            pos: { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 100 },
+            size: 8,
+            color: COLORS.player,
+            vel: { x: 0, y: 0 },
+            hp: PLAYER_BASE_STATS.hp,
+            maxHp: PLAYER_BASE_STATS.hp,
+            speed: PLAYER_BASE_STATS.speed,
+            dashCooldown: PLAYER_BASE_STATS.dashCooldown,
+            dashTimer: 0,
+            isDashing: false,
+            invincibilityTimer: 0,
+            shootCooldown: PLAYER_BASE_STATS.fireRate,
+            damage: PLAYER_BASE_STATS.damage,
+            projectileSpeed: PLAYER_BASE_STATS.projectileSpeed,
+            projectileSize: PLAYER_BASE_STATS.projectileSize,
+            slowTimer: 0,
+            invertedControls: false,
+            screenRotation: 0,
+            secondaryWeapon: 'NONE',
+            secondaryWeaponLevel: 0,
+            secondaryCooldownTimer: 0,
+            secondaryCooldownMax: 0,
+            secondaryDamageMult: 1,
+            activeDronesDuration: 0,
+            droneChargeCount: 0,
+            beamDuration: 0,
+            shieldDuration: 0,
+            chargeTimer: 0,
+            isCharging: false,
+            godMode: godModeEnabled,
+            shieldDirection: 'UP',
+
+            isSoulMode: startAtPhase2,
+            gravityDir: { x: 0, y: 1 },
+            isGrounded: false,
+            jumpPower: SOUL_PHYSICS.jumpPower,
+            krTimer: 0,
+            krDamageAccumalator: 0,
+            playAreaScale: startAtPhase2 ? 0.6 : 1.0 // Smaller box for Phase 2
+        };
+
+        if (startAtPhase2) {
+            player.current.pos = { x: CH2_BOX.cx, y: CH2_BOX.cy };
+            player.current.speed = SOUL_PHYSICS.soulSpeed;
+            player.current.size = 6; // Smaller hit box (Heart)
+            currentBossIndex.current = 5; // Start at Boss 6 (Index 5)
+            player.current.hp = 100; // Give a bit more HP for CH2
+            player.current.maxHp = 100;
+
+            // Reset Ch2 refs
+            ch2BoxW.current = CH2_BOX.baseW;
+            ch2BoxH.current = CH2_BOX.baseH;
+            ch2BoxOffsetX.current = 0;
+            ch2SoulColor.current = 'RED';
+            ch2ColorPhaseTimer.current = 0;
+            ch2GlitchIntensity.current = 0;
+            ch2IsFightAvailable.current = false;
+        } else {
+            currentBossIndex.current = 0;
+        }
+
+        nextUpgrades.forEach(item => {
+            for (let i = 0; i < item.count; i++) {
+                item.upgrade.apply(player.current);
+            }
+        });
+
+        player.current.hp = player.current.maxHp;
+
+        bullets.current = [];
+        particles.current = [];
+        frameCount.current = 0;
+
+        initBoss(currentBossIndex.current);
+        gameState.current = GameState.PLAYING;
+        setUiState(GameState.PLAYING);
+    };
+
+    const fireSecondary = () => {
+        const p = player.current;
+        const b = boss.current;
+        if (p.secondaryWeapon === 'NONE' || p.secondaryCooldownTimer > 0) return;
+
+        const stats = SECONDARY_WEAPON_STATS[p.secondaryWeapon];
+        const damage = stats.damage * p.secondaryDamageMult;
+        const lvl = p.secondaryWeaponLevel;
+
+        switch (p.secondaryWeapon) {
+            case 'DRONES':
+                p.activeDronesDuration = lvl >= 3 ? 360 : 300;
+                if (lvl >= 3) p.droneChargeCount = 0;
+                break;
+            case 'BEAM':
+                p.beamDuration = lvl >= 2 ? 90 : 60;
+                if (lvl >= 3) {
+                    shakeIntensity.current = 25;
+                    spawnParticles(p.pos, '#a78bfa', 40, 12);
+                }
+                break;
+            case 'MINE':
+                {
+                    let angle = -Math.PI / 2;
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    bullets.current.push({
+                        pos: { ...p.pos }, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 8, color: stats.color,
+                        isEnemy: false, damage: damage * (lvl >= 1 ? 1.3 : 1), lifetime: 200, isMine: true
+                    });
+                }
+                break;
+            case 'EMP':
+                bullets.current.forEach(bul => {
+                    if (bul.isEnemy) {
+                        if (lvl >= 3) { bul.vel = { x: 0, y: 0 }; bul.color = '#fff'; }
+                        else { bul.lifetime = 0; spawnParticles(bul.pos, '#22d3ee', 3, 2); }
+                    }
+                });
+                if (b) {
+                    b.slowTimer = lvl >= 1 ? 400 : 300;
+                    if (lvl >= 3) {
+                        b.freezeTimer = 180;
+                        hudGlitch.current = 15;
+                        for (let i = 0; i < 5; i++) {
+                            spawnParticles(p.pos, '#22d3ee', 20, 10 + i * 2);
+                        }
+                    }
+                }
+                shakeIntensity.current = lvl >= 3 ? 20 : 10;
+                spawnParticles(p.pos, '#22d3ee', lvl >= 3 ? 200 : 100, lvl >= 3 ? 25 : 15);
+                break;
+            case 'FLAMETHROWER':
+                {
+                    const count = lvl >= 3 ? 60 : 30; // Buffed: Increased fire volume
+                    const arc = lvl >= 3 ? Math.PI : 0.6; // Slightly wider arc
+                    let baseAngle = -Math.PI / 2;
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    for (let i = 0; i < count; i++) {
+                        const angle = baseAngle + (Math.random() - 0.5) * arc;
+                        const speed = 6 + Math.random() * (lvl >= 3 ? 15 : 6); // Faster particles
+                        bullets.current.push({
+                            pos: { ...p.pos }, vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                            size: (6 + Math.random() * 4) * (lvl >= 3 ? 2.5 : 1), // Larger particles
+                            color: lvl >= 3 ? (Math.random() > 0.6 ? '#fff' : (Math.random() > 0.3 ? '#60a5fa' : stats.color)) : stats.color,
+                            isEnemy: false, damage: damage * (lvl >= 1 ? 1.5 : 1),
+                            lifetime: (lvl >= 3 ? 50 : 45) + Math.random() * 25, effect: 'BURN' // Longer lifetime = Better range
+                        });
+                    }
+                    if (lvl >= 3) shakeIntensity.current = 8; // More shake for power feel
+                }
+                break;
+            case 'MISSILE':
+                const mCount = lvl >= 3 ? 3 : 1;
+                const startI = mCount === 1 ? 0 : -1;
+                const endI = mCount === 1 ? 0 : 1;
+                for (let i = startI; i <= endI; i++) {
+                    bullets.current.push({
+                        pos: { ...p.pos }, vel: { x: i * 5, y: -5 }, size: lvl >= 3 ? 25 : 10, color: stats.color,
+                        isEnemy: false, damage: damage * (lvl >= 3 ? 3 : 1), lifetime: lvl >= 3 ? 600 : 300,
+                        homing: true, clusterCount: lvl >= 2 ? (lvl >= 3 ? 8 : 5) : 0, isMissile: true
+                    });
+                }
+                if (lvl >= 3) spawnParticles(p.pos, '#fff', 20, 5);
+                break;
+            case 'CRYO':
+                {
+                    let angle = -Math.PI / 2;
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    bullets.current.push({
+                        pos: { ...p.pos }, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 12 + (lvl * 2), color: stats.color,
+                        isEnemy: false, damage: damage, lifetime: 100, effect: 'FREEZE'
+                    });
+                    if (lvl >= 3) {
+                        shakeIntensity.current = 15;
+                        for (let i = 0; i < 30; i++) {
+                            const partAngle = Math.random() * Math.PI * 2;
+                            const dist = Math.random() * 100;
+                            spawnParticles({ x: p.pos.x + Math.cos(partAngle) * dist, y: p.pos.y + Math.sin(partAngle) * dist }, '#bae6fd', 10, 5);
+                        }
+                    }
+                    spawnParticles(p.pos, '#bae6fd', lvl >= 3 ? 150 : 80, 15);
+                }
+                break;
+            case 'SHIELD':
+                p.shieldDuration = 180;
+                break;
+            case 'GRAVITY':
+                {
+                    let spawnPos = { x: p.pos.x, y: p.pos.y - 150 };
+                    if (p.isSoulMode && b) {
+                        spawnPos = { ...b.pos };
+                    }
+                    bullets.current.push({
+                        pos: spawnPos, vel: { x: 0, y: 0 }, size: lvl >= 1 ? 5 : 2,
+                        color: stats.color, isEnemy: false, damage: damage, lifetime: lvl >= 3 ? 400 : 300, effect: 'GRAVITY'
+                    });
+                }
+                break;
+            case 'OVERCHARGE':
+                p.isCharging = true; p.chargeTimer = 0;
+                if (lvl >= 3) {
+                    shakeIntensity.current = 5;
+                    spawnParticles(p.pos, '#f472b6', 20, 5);
+                }
+                break;
+            case 'CH2_BONE_STRIKE':
+                {
+                    let angle = -Math.PI / 2;
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    const isLvl3 = lvl >= 3;
+                    if (isLvl3) {
+                        shakeIntensity.current = 20;
+                        spawnParticles(p.pos, '#60a5fa', 15, 8);
+                    }
+                    bullets.current.push({
+                        pos: { x: p.pos.x, y: p.pos.y }, vel: { x: Math.cos(angle) * 15, y: Math.sin(angle) * 15 }, size: 10 + (lvl * 5), color: isLvl3 ? '#60a5fa' : stats.color,
+                        isEnemy: false, damage: damage * (lvl >= 1 ? 1.5 : 1), lifetime: 100, piercing: true, isBone: true, boneWidth: 20 + lvl * 10, boneHeight: 60 + lvl * 20,
+                        effect: isLvl3 ? 'GLOW' : undefined
+                    });
+                }
+                break;
+            case 'CH2_PIXEL_BLAST':
+                {
+                    let baseAngle = -Math.PI / 2;
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    const pixelCount = lvl >= 2 ? (lvl >= 3 ? 25 : 15) : 8;
+                    for (let i = 0; i < pixelCount; i++) {
+                        const angle = baseAngle + (Math.random() - 0.5) * (lvl >= 3 ? Math.PI * 1.2 : 0.8);
+                        const speed = 8 + Math.random() * (lvl >= 3 ? 12 : 8);
+                        const pColor = lvl >= 3 ? `hsl(${Math.random() * 360}, 80%, 60%)` : stats.color;
+                        bullets.current.push({
+                            pos: { ...p.pos }, vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                            size: lvl >= 3 ? 8 : 6, color: pColor,
+                            isEnemy: false, damage: damage, lifetime: 40 + Math.random() * 20
+                        });
+                    }
+                    if (lvl >= 3) shakeIntensity.current = 10;
+                }
+                break;
+            case 'CH2_VOID_NOTES':
+                {
+                    let baseAngle = -Math.PI / 2;
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    const noteCount = lvl >= 3 ? 5 : (lvl >= 1 ? 3 : 1);
+                    for (let i = 0; i < noteCount; i++) {
+                        const angle = baseAngle + (i - (noteCount - 1) / 2) * (lvl >= 3 ? 0.3 : 0.5);
+                        bullets.current.push({
+                            pos: { ...p.pos }, vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 }, size: lvl >= 3 ? 12 : 8, color: stats.color,
+                            isEnemy: false, damage: damage, lifetime: 300, bounces: 0, maxBounces: lvl >= 3 ? 15 : 3,
+                            effect: lvl >= 3 ? 'WAVE' : undefined
+                        });
+                    }
+                }
+                break;
+            case 'CH2_GLITCH_BOMB':
+                {
+                    let angle = -Math.PI / 2;
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    bullets.current.push({
+                        pos: { ...p.pos }, vel: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 }, size: lvl >= 3 ? 25 : 15, color: lvl >= 3 ? '#ff00ff' : stats.color,
+                        isEnemy: false, damage: damage * (lvl >= 1 ? 2 : 1), lifetime: 60, clusterCount: lvl >= 3 ? 20 : 6, effect: 'REALITY_BREAK'
+                    });
+                    if (lvl >= 3) hudGlitch.current = 20;
+                }
+                break;
+            case 'CH2_KR_BEAM':
+                p.beamDuration = lvl >= 3 ? 120 : (lvl >= 2 ? 60 : 30);
+                shakeIntensity.current = lvl >= 3 ? 35 : 15;
+                if (lvl >= 3) spawnParticles(p.pos, '#000', 30, 10);
+                break;
+        }
+
+        if (p.secondaryWeapon !== 'OVERCHARGE') {
+            p.secondaryCooldownTimer = p.secondaryCooldownMax;
+            if (p.secondaryWeapon === 'BEAM' && lvl >= 1) p.secondaryCooldownTimer *= 0.7;
+        }
+    };
+
+    const handleSecondaryLogic = () => {
+        const p = player.current;
+        const b = boss.current;
+        const lvl = p.secondaryWeaponLevel;
+
+        if (p.secondaryCooldownTimer > 0) p.secondaryCooldownTimer--;
+
+        if (p.activeDronesDuration > 0) {
+            p.activeDronesDuration--;
+            if (p.activeDronesDuration % 10 === 0 && b) {
+                for (let i = 0; i < 3; i++) {
+                    const offsetAngle = (frameCount.current * 0.05) + (i * (Math.PI * 2 / 3));
+                    const spawnX = p.pos.x + Math.cos(offsetAngle) * 40;
+                    const spawnY = p.pos.y + Math.sin(offsetAngle) * 40;
+                    const angle = Math.atan2(b.pos.y - spawnY, b.pos.x - spawnX);
+                    bullets.current.push({
+                        pos: { x: spawnX, y: spawnY }, vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
+                        size: lvl >= 3 ? 5 : 3, color: lvl >= 3 ? '#fff' : SECONDARY_WEAPON_STATS.DRONES.color, isEnemy: false,
+                        damage: SECONDARY_WEAPON_STATS.DRONES.damage * p.secondaryDamageMult, lifetime: 100,
+                        isDrone: true, piercing: lvl >= 1, droneSticky: lvl >= 3
+                    });
+                    if (lvl >= 3) {
+                        spawnParticles({ x: spawnX, y: spawnY }, '#34d399', 2, 4);
+                    }
+                }
+            }
+            if (lvl >= 3 && p.activeDronesDuration === 1 && b && p.droneChargeCount > 0) {
+                const dmg = p.droneChargeCount * (SECONDARY_WEAPON_STATS.DRONES.damage * p.secondaryDamageMult) * 2;
+                b.hp -= dmg; shakeIntensity.current = 40; spawnParticles(b.pos, '#34d399', 100, 20);
+
+                // FIX: Remove stuck drones visually when they explode
+                for (let i = bullets.current.length - 1; i >= 0; i--) {
+                    const bul = bullets.current[i];
+                    if (bul.isDrone && bul.attachedToBoss) {
+                        spawnParticles(bul.pos, '#34d399', 10, 5);
+                        bullets.current.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        if (p.beamDuration > 0 && b) {
+            p.beamDuration--;
+            const isSoul = p.isSoulMode;
+            if (lvl >= 3) {
+                // Level 3 beam always hits if boss is above player or in soul mode
+                if (b.pos.y < p.pos.y || isSoul) {
+                    b.hp -= (SECONDARY_WEAPON_STATS.BEAM.damage * p.secondaryDamageMult) * 2;
+                    if (frameCount.current % 3 === 0) {
+                        spawnParticles(b.pos, '#a78bfa', 8, 12);
+                        spawnParticles(b.pos, '#fff', 4, 15);
+                        shakeIntensity.current = Math.max(shakeIntensity.current, 5);
+                    }
+                }
+            } else {
+                // Lower levels require horizontal alignment or soul mode
+                const hit = isSoul || (Math.abs(b.pos.x - p.pos.x) < (b.size + 10) && b.pos.y < p.pos.y);
+                if (hit) {
+                    let tickDmg = SECONDARY_WEAPON_STATS.BEAM.damage * p.secondaryDamageMult;
+                    if (lvl >= 2) tickDmg *= 1.2;
+                    b.hp -= tickDmg;
+                    if (frameCount.current % 5 === 0) spawnParticles({ x: b.pos.x, y: b.pos.y + b.size }, '#a78bfa', 2, 5);
+                }
+            }
+        }
+
+        if (p.shieldDuration > 0) {
+            p.shieldDuration--;
+            bullets.current.forEach(bul => {
+                if (bul.isEnemy) {
+                    const dist = Math.sqrt((bul.pos.x - p.pos.x) ** 2 + (bul.pos.y - p.pos.y) ** 2);
+                    const radius = lvl >= 1 ? 90 : 60;
+                    if (dist < radius && bul.pos.y < p.pos.y) {
+                        bul.isEnemy = false; bul.color = '#818cf8';
+                        const reflectSpeed = lvl >= 3 ? 3.0 : 1.5;
+                        bul.vel.x = -bul.vel.x * reflectSpeed; bul.vel.y = -bul.vel.y * reflectSpeed;
+                        bul.lifetime = 100;
+                        if (lvl >= 2) bul.damage *= 1.5; if (lvl >= 3) bul.damage *= 3;
+                    }
+                }
+            });
+        }
+
+        if (p.isCharging) {
+            const chargeRate = lvl >= 1 ? 2 : 1;
+            p.chargeTimer += chargeRate;
+            spawnParticles(p.pos, '#f472b6', 1, 2);
+            if (p.chargeTimer >= 60) {
+                p.isCharging = false;
+                let dmg = SECONDARY_WEAPON_STATS.OVERCHARGE.damage * p.secondaryDamageMult;
+                if (lvl >= 2) dmg *= 1.5;
+
+                let angle = -Math.PI / 2;
+                if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+
+                if (lvl >= 3) {
+                    bullets.current.push({
+                        pos: { x: p.pos.x, y: p.pos.y - 20 }, vel: { x: Math.cos(angle) * 20, y: Math.sin(angle) * 20 }, size: 80, color: '#f472b6',
+                        isEnemy: false, damage: dmg, lifetime: 10, isBeam: true
+                    });
+                    setTimeout(() => {
+                        if (boss.current) {
+                            boss.current.hp -= dmg * 2;
+                            spawnParticles(boss.current.pos, '#f472b6', 80, 12);
+                            spawnParticles(boss.current.pos, '#fff', 40, 15);
+                            shakeIntensity.current = 40;
+                            hudGlitch.current = 15;
+                        }
+                    }, 200);
+                } else {
+                    bullets.current.push({
+                        pos: { x: p.pos.x, y: p.pos.y - 20 }, vel: { x: Math.cos(angle) * 20, y: Math.sin(angle) * 20 }, size: 50, color: '#f472b6',
+                        isEnemy: false, damage: dmg, lifetime: 100
+                    });
+                }
+                p.secondaryCooldownTimer = p.secondaryCooldownMax; shakeIntensity.current = 25;
+            }
+        }
+    };
+
+    const handleBossLogic = () => {
+        if (!boss.current) return;
+        const b = boss.current;
+
+        // Chapter 2 bosses use their own logic
+        if (b.type >= BossType.CH2_GUARDIAN) {
+            handleCh2BossLogic();
+            return;
+        }
+
+        if (b.freezeTimer > 0) { b.freezeTimer--; return; }
+        if (b.slowTimer > 0) {
+            b.slowTimer--;
+            if (frameCount.current % 20 === 0) spawnParticles(b.pos, '#bae6fd', 2, 2);
+        }
+
+        const isSlowed = b.slowTimer > 0;
+        if (isSlowed && frameCount.current % 2 === 0) return;
+
+        const p = player.current;
+
+        const hpPercent = b.hp / b.maxHp;
+        if (b.type !== BossType.AZATHOTH) {
+            if (hpPercent < 0.33 && b.phase < 3) { b.phase = 3; spawnParticles(b.pos, '#fff', 50, 10); shakeIntensity.current = 15; }
+            else if (hpPercent < 0.66 && b.phase < 2) { b.phase = 2; spawnParticles(b.pos, '#fff', 30, 8); shakeIntensity.current = 10; }
+        } else {
+            // Azathoth Phases
+            if (hpPercent < 0.20 && b.phase < 5) { b.phase = 5; b.activeEffect = "REALITY COLLAPSE"; shakeIntensity.current = 40; hudGlitch.current = 50; }
+            else if (hpPercent < 0.40 && b.phase < 4) { b.phase = 4; b.activeEffect = "FALSE HOPE"; shakeIntensity.current = 20; }
+            else if (hpPercent < 0.60 && b.phase < 3) { b.phase = 3; b.activeEffect = "EVENT HORIZON"; shakeIntensity.current = 20; }
+            else if (hpPercent < 0.80 && b.phase < 2) { b.phase = 2; b.activeEffect = "NEURAL CORRUPTION"; shakeIntensity.current = 15; }
+        }
+
+        b.attackTimer++;
+
+        // --- BOSS 1: SKELETON PRIME ---
+        if (b.type === BossType.SKELETON_PRIME) {
+            const fireRate = b.phase === 3 ? 10 : (b.phase === 2 ? 20 : 30);
+            b.pos.x += Math.sin(frameCount.current * 0.05) * 2;
+
+            // FASE 3: EFECTO INFERNAL
+            if (b.phase === 3) {
+                shakeIntensity.current = Math.max(shakeIntensity.current, 2);
+                if (frameCount.current % 120 === 0) {
+                    // Mega Láser Horizontal Aleatorio
+                    const laserY = 100 + Math.random() * (CANVAS_HEIGHT - 200);
+                    spawnParticles({ x: 0, y: laserY }, '#ef4444', 10, 5);
+                    setTimeout(() => {
+                        if (boss.current?.type === BossType.SKELETON_PRIME && boss.current.phase === 3) {
+                            for (let i = 0; i < CANVAS_WIDTH; i += 30) {
+                                bullets.current.push({ pos: { x: i, y: laserY }, vel: { x: 0, y: 0 }, size: 12, color: '#ef4444', isEnemy: true, damage: 20, lifetime: 40 });
+                            }
+                            shakeIntensity.current = 10;
+                        }
+                    }, 600);
+                }
+            }
+
+            if (b.attackTimer % fireRate === 0) {
+                const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                bullets.current.push({ pos: { ...b.pos }, vel: { x: Math.cos(angle) * 7, y: Math.sin(angle) * 7 }, size: 6, color: COLORS.enemyBullet, isEnemy: true, damage: 10, lifetime: 300 });
+            }
+            if (b.phase >= 2 && b.attackTimer % 180 === 0) {
+                for (let i = 0; i < CANVAS_WIDTH; i += 40) {
+                    if (Math.abs(i - p.pos.x) < 80) continue;
+                    bullets.current.push({ pos: { x: i, y: -20 }, vel: { x: 0, y: 5 }, size: 10, color: COLORS.enemyBulletSpecial, isEnemy: true, damage: 15, lifetime: 200 });
+                }
+            }
+        }
+        // --- BOSS 2: KING SLAMMER ---
+        else if (b.type === BossType.KING_PENGUIN) {
+            if (b.state === 'IDLE' && b.attackTimer > 120) { b.state = 'MOVING'; b.moveTarget = { ...p.pos }; b.attackTimer = 0; }
+            if (b.state === 'MOVING' && b.moveTarget) {
+                const dx = b.moveTarget.x - b.pos.x; const dy = b.moveTarget.y - b.pos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 10) { b.pos.x += (dx / dist) * 10; b.pos.y += (dy / dist) * 10; }
+                else {
+                    shakeIntensity.current = 20; b.state = 'IDLE';
+                    for (let i = 0; i < 360; i += (b.phase === 3 ? 10 : 20)) {
+                        const rad = (i * Math.PI) / 180;
+                        bullets.current.push({ pos: { ...b.pos }, vel: { x: Math.cos(rad) * 6, y: Math.sin(rad) * 6 }, size: 5, color: COLORS.enemyBullet, isEnemy: true, damage: 15, lifetime: 100 });
+                    }
+                }
+            }
+        }
+        // --- BOSS 3: CHANCE-O-TRON (OVERHAUL) ---
+        else if (b.type === BossType.GAMBLE_BOT) {
+            if (!b.modifiers) b.modifiers = { damage: 1, fireRate: 1, moveSpeed: 1 };
+            if (b.rouletteTimer === undefined) b.rouletteTimer = 0;
+            b.rouletteTimer++;
+
+            // Roulette Logic (Faster Spin)
+            if (b.rouletteState === 'IDLE' && b.rouletteTimer >= 500) { b.rouletteState = 'SPINNING'; b.rouletteSpinTimer = 90; spawnParticles(b.pos, '#fbbf24', 20, 5); }
+            if (b.rouletteState === 'SPINNING') {
+                b.rouletteSpinTimer = (b.rouletteSpinTimer || 0) - 1;
+                if (b.rouletteSpinTimer <= 0) {
+                    const roll = Math.random();
+                    b.modifiers = { damage: 1, fireRate: 1, moveSpeed: 1 };
+                    if (roll < 0.20) { b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.10); b.activeEffect = "JACKPOT! HEAL +10%"; spawnParticles(b.pos, '#22c55e', 40, 8); }
+                    else if (roll < 0.60) { b.modifiers.damage = 1.8; b.activeEffect = "HIGH ROLLER! DMG x1.8"; spawnParticles(b.pos, '#ef4444', 40, 8); }
+                    else if (roll < 0.90) { b.modifiers.fireRate = 2.5; b.activeEffect = "BLITZ! RATE x2.5"; spawnParticles(b.pos, '#eab308', 40, 8); }
+                    else { b.modifiers.fireRate = 0.5; b.modifiers.moveSpeed = 0.5; b.activeEffect = "BUST... SLOWED"; spawnParticles(b.pos, '#64748b', 40, 8); }
+                    b.rouletteState = 'IDLE'; b.rouletteTimer = 0;
+                }
+            }
+
+            b.pos.x = CANVAS_WIDTH / 2 + Math.sin(frameCount.current * 0.03 * b.modifiers.moveSpeed) * 200;
+
+            // PHASE 1: DICE & CHIP STREAMS
+            if (b.phase === 1) {
+                // Explosive Dice
+                if (b.attackTimer % Math.max(30, Math.floor(60 / b.modifiers.fireRate)) === 0) {
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                    bullets.current.push({
+                        pos: { ...b.pos }, vel: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+                        size: 15, color: '#ffffff', isEnemy: true, damage: 15 * b.modifiers.damage, lifetime: 60,
+                        clusterCount: 6 // Explodes on timeout
+                    });
+                }
+                // Chip Streams
+                if (b.attackTimer % Math.max(4, Math.floor(8 / b.modifiers.fireRate)) === 0) {
+                    const spread = Math.sin(frameCount.current * 0.15);
+                    bullets.current.push({
+                        pos: { ...b.pos }, vel: { x: spread * 6, y: 7 },
+                        size: 7, color: frameCount.current % 10 < 5 ? '#ef4444' : '#000000',
+                        isEnemy: true, damage: 8 * b.modifiers.damage, lifetime: 200
+                    });
+                }
+            }
+            // PHASE 2: SLOT MACHINE BALLS (FIXED)
+            else if (b.phase === 2) {
+                // Slot Machine Projectiles (Falling Balls instead of stuck beams)
+                if (b.attackTimer % 90 === 0) {
+                    const count = 5;
+                    for (let i = 0; i < count; i++) {
+                        const startX = (CANVAS_WIDTH / count) * i + 40;
+                        bullets.current.push({
+                            pos: { x: startX, y: -20 }, vel: { x: (Math.random() - 0.5) * 1, y: 8 },
+                            size: 25, color: '#ec4899', isEnemy: true, damage: 15 * b.modifiers.damage, lifetime: 120
+                        });
+                    }
+                }
+                // Ring Bursts
+                if (b.attackTimer % 20 === 0) {
+                    const angle = frameCount.current * 0.1;
+                    for (let i = 0; i < 6; i++) {
+                        const a = angle + (Math.PI * 2 / 6) * i;
+                        bullets.current.push({
+                            pos: { ...b.pos }, vel: { x: Math.cos(a) * 8, y: Math.sin(a) * 8 },
+                            size: 6, color: '#eab308', isEnemy: true, damage: 10 * b.modifiers.damage, lifetime: 200
+                        });
+                    }
+                }
+            }
+            // PHASE 3: JACKPOT STORM (Rain + Cards)
+            else {
+                // FASE 3: EFECTO NEÓN
+                if (frameCount.current % 10 === 0) {
+                    const colors = ['#f472b6', '#4ade80', '#fbbf24', '#60a5fa'];
+                    spawnParticles(b.pos, colors[Math.floor(Math.random() * colors.length)], 5, 4);
+                }
+
+                // Coin Rain (Gravity)
+                if (b.attackTimer % 3 === 0) {
+                    bullets.current.push({
+                        pos: { x: Math.random() * CANVAS_WIDTH, y: -20 },
+                        vel: { x: (Math.random() - 0.5) * 2, y: 5 + Math.random() * 8 },
+                        size: 8, color: '#eab308', isEnemy: true, damage: 12 * b.modifiers.damage, lifetime: 250,
+                        effect: 'GRAVITY' // Reusing gravity visual/logic (black hole like, but falling down)
+                    });
+                }
+                // Homing/Bouncing Cards
+                if (b.attackTimer % 30 === 0) {
+                    const angle = Math.random() * Math.PI * 2;
+                    bullets.current.push({
+                        pos: { ...b.pos }, vel: { x: Math.cos(angle) * 7, y: Math.sin(angle) * 7 },
+                        size: 12, color: '#fff', isEnemy: true, damage: 18 * b.modifiers.damage, lifetime: 300,
+                        curve: 0.08, homing: true // Aggressive tracking
+                    });
+                }
+            }
+        }
+        // --- BOSS 4: VOID REAPER (BUFFED PHASE 3) ---
+        else if (b.type === BossType.VOID_REAPER) {
+            b.pos.x += (CANVAS_WIDTH / 2 - b.pos.x) * 0.05; b.pos.y += (CANVAS_HEIGHT / 2 - b.pos.y) * 0.05;
+
+            // Arm logic
+            const arms = b.phase * 2 + 2;
+            const spinSpeed = b.phase === 3 ? 0.15 : 0.05 * b.phase; // Triple speed in P3
+
+            if (b.attackTimer % (b.phase === 3 ? 2 : 4) === 0) {
+                for (let i = 0; i < arms; i++) {
+                    const angle = (frameCount.current * spinSpeed) + (Math.PI * 2 / arms) * i;
+                    bullets.current.push({ pos: { ...b.pos }, vel: { x: Math.cos(angle) * (b.phase === 3 ? 8 : 5), y: Math.sin(angle) * (b.phase === 3 ? 8 : 5) }, size: 4, color: COLORS.enemyBullet, isEnemy: true, damage: 8, lifetime: 400 });
+                }
+            }
+
+            // BUFFED PHASE 3: VOID STORM
+            if (b.phase === 3) {
+                // 1. Random Void Slashes
+                if (b.attackTimer % 20 === 0) {
+                    const isHorizontal = Math.random() > 0.5;
+                    const fixed = Math.random() * (isHorizontal ? CANVAS_HEIGHT : CANVAS_WIDTH);
+                    // Warning line
+                    spawnParticles(isHorizontal ? { x: CANVAS_WIDTH / 2, y: fixed } : { x: fixed, y: CANVAS_HEIGHT / 2 }, '#7f1d1d', 5, 10);
+
+                    setTimeout(() => {
+                        for (let i = 0; i < (isHorizontal ? CANVAS_WIDTH : CANVAS_HEIGHT); i += 20) {
+                            bullets.current.push({
+                                pos: isHorizontal ? { x: i, y: fixed } : { x: fixed, y: i },
+                                vel: isHorizontal ? { x: 0, y: (Math.random() - 0.5) * 2 } : { x: (Math.random() - 0.5) * 2, y: 0 },
+                                size: 6, color: '#7f1d1d', isEnemy: true, damage: 15, lifetime: 60
+                            });
+                        }
+                    }, 500); // 0.5s delay before slash
+                }
+
+                // 2. Void Rain (Top down fast)
+                if (b.attackTimer % 5 === 0) {
+                    bullets.current.push({
+                        pos: { x: Math.random() * CANVAS_WIDTH, y: -10 },
+                        vel: { x: 0, y: 12 },
+                        size: 5, color: '#000', isEnemy: true, damage: 10, lifetime: 100
+                    });
+                }
+            }
+        }
+        // --- BOSS 5: AZATHOTH ---
+        else if (b.type === BossType.AZATHOTH) {
+            // Tentacle Animation
+            b.tentacles?.forEach((t, i) => {
+                t.angle += 0.02 * (i % 2 === 0 ? 1 : -1);
+                t.length = 150 + Math.sin(frameCount.current * 0.05 + i) * 50;
+            });
+
+            // PHASE 1: NON-EUCLIDEAN (Rotation)
+            if (b.phase >= 1) {
+                p.screenRotation = Math.sin(frameCount.current * 0.01) * 0.15; // Slow chaotic rotation
+                if (b.attackTimer % 5 === 0) {
+                    const spiralAngle = (frameCount.current * 0.1);
+                    bullets.current.push({
+                        pos: { ...b.pos },
+                        vel: { x: Math.cos(spiralAngle) * 4, y: Math.sin(spiralAngle) * 4 },
+                        size: 6, color: '#a855f7', isEnemy: true, damage: 10, lifetime: 400, curve: 0.02
+                    });
+                }
+            }
+
+            // PHASE 2: NEURAL CORRUPTION (Inverted Controls)
+            if (b.phase >= 2) {
+                if (frameCount.current % 600 < 300) {
+                    if (!p.invertedControls) spawnParticles(p.pos, '#ef4444', 20, 5);
+                    p.invertedControls = true;
+                } else {
+                    if (p.invertedControls) spawnParticles(p.pos, '#22c55e', 20, 5);
+                    p.invertedControls = false;
+                }
+            }
+
+            // PHASE 3: EVENT HORIZON (Shrinking Arena)
+            if (b.phase >= 3) {
+                p.playAreaScale = 0.7 + Math.sin(frameCount.current * 0.02) * 0.2; // Pulsing arena
+                if (b.attackTimer % 60 === 0) {
+                    // Giant wall laser
+                    bullets.current.push({
+                        pos: { x: Math.random() * CANVAS_WIDTH, y: 0 },
+                        vel: { x: 0, y: 8 },
+                        size: 40, color: '#4c1d95', isEnemy: true, damage: 20, lifetime: 100, isBeam: true
+                    });
+                }
+            }
+
+            // PHASE 4: FALSE HOPE (Fake Safe Zones)
+            if (b.phase >= 4) {
+                if (b.attackTimer % 180 === 0) {
+                    // Spawn Safe Zone Marker
+                    bullets.current.push({
+                        pos: { x: Math.random() * CANVAS_WIDTH * 0.8 + 50, y: Math.random() * CANVAS_HEIGHT * 0.8 + 50 },
+                        vel: { x: 0, y: 0 }, size: 80, color: '#22c55e', isEnemy: true, damage: 0, lifetime: 120,
+                        isSafeZone: true, safeZoneTimer: 120
+                    });
+                }
+            }
+
+            // PHASE 5: REALITY COLLAPSE (HUD Break, Chaos)
+            if (b.phase >= 5) {
+                hudGlitch.current = Math.random() * 20;
+                p.screenRotation += Math.sin(frameCount.current * 0.1) * 0.05; // Intense shake
+                if (b.attackTimer % 2 === 0) {
+                    // Pure chaos
+                    const a = Math.random() * Math.PI * 2;
+                    bullets.current.push({
+                        pos: { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 },
+                        vel: { x: Math.cos(a) * 6, y: Math.sin(a) * 6 },
+                        size: 4, color: Math.random() > 0.5 ? '#000' : '#fff', isEnemy: true, damage: 15, lifetime: 200
+                    });
+                }
+            }
+        }
+    };
+
+    // ═══════════════════════════════════════════════
+    // CHAPTER 2 BOSS LOGIC
+    // ═══════════════════════════════════════════════
+    const handleCh2BossLogic = () => {
+        if (!boss.current) return;
+        const b = boss.current;
+        const p = player.current;
+        const spd = 1 + (b.phase - 1) * 0.25; // +25% per phase
+
+        // Phase transitions
+        const hpPct = b.hp / b.maxHp;
+        if (hpPct < 0.33 && b.phase < 3) {
+            b.phase = 3;
+            spawnParticles(b.pos, '#fff', 60, 12);
+            shakeIntensity.current = 25;
+            if (b.type === BossType.CH2_DIRECTOR) { ch2BoxW.current = 96; ch2BoxH.current = 64; }
+            else { ch2BoxW.current = 200; ch2BoxH.current = 130; }
+        } else if (hpPct < 0.66 && b.phase < 2) {
+            b.phase = 2;
+            spawnParticles(b.pos, '#fff', 40, 10);
+            shakeIntensity.current = 15;
+        }
+
+        b.attackTimer++;
+
+        // Fight window: every 400 frames, open a 70-frame window
+        if (ch2FightWindowTimer.current > 0) ch2FightWindowTimer.current--;
+        if (b.attackTimer % 400 === 0) {
+            ch2IsFightAvailable.current = true;
+            ch2FightWindowTimer.current = 70;
+        }
+        if (ch2FightWindowTimer.current === 0 && ch2IsFightAvailable.current) {
+            ch2IsFightAvailable.current = false;
+        }
+
+        // ── EL GUARDIÁN BINARIO ──────────────────────────
+        if (b.type === BossType.CH2_GUARDIAN) {
+            if (b.phase >= 2) {
+                ch2BoxOffsetX.current = Math.sin(frameCount.current * 0.025) * 80;
+            }
+            if (b.phase >= 3) {
+                ch2ColorPhaseTimer.current++;
+            }
+            const bColor: 'WHITE' | 'BLUE' | 'ORANGE' = b.phase === 3
+                ? (Math.floor(ch2ColorPhaseTimer.current / 120) % 2 === 0 ? 'BLUE' : 'ORANGE')
+                : 'WHITE';
+            if (b.phase === 3) b.activeEffect = bColor === 'BLUE' ? '🔵 AZUL - NO TE MUEVAS' : '🟠 NARANJA - MUÉVETE';
+
+            // Horizontal bones
+            const hRate = Math.round(60 / spd);
+            if (b.attackTimer % hRate === 0) {
+                const fromLeft = (b.attackTimer / hRate) % 2 === 0;
+                let yPos = CH2_BOX.cy - ch2BoxH.current / 2 + Math.random() * ch2BoxH.current;
+
+                // --- BRECHA DE SEGURIDAD (SECRET GAP) ---
+                // Si el jugador está cerca del safe spot, desviamos los huesos un poco (solo si el código está activo)
+                const safeX = 422 + ch2BoxOffsetX.current;
+                const safeY = 385;
+                const isNearSafeSpot = (isAdminAuthenticated.current || secretRiftActive.current) && Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 20;
+                if (isNearSafeSpot && Math.abs(yPos - safeY) < 30) {
+                    yPos = yPos > safeY ? yPos + 35 : yPos - 35;
+                }
+
+                bullets.current.push({
+                    pos: { x: fromLeft ? CH2_BOX.cx + ch2BoxOffsetX.current - ch2BoxW.current / 2 - 50 : CH2_BOX.cx + ch2BoxOffsetX.current + ch2BoxW.current / 2 + 50, y: yPos },
+                    vel: { x: (fromLeft ? 1 : -1) * 5 * spd, y: 0 },
+                    size: 8, color: bColor === 'BLUE' ? '#3b82f6' : (bColor === 'ORANGE' ? '#f97316' : '#e5e7eb'),
+                    isEnemy: true, damage: 10, lifetime: 160,
+                    isBone: true, boneWidth: 90, boneHeight: 18, boneColor: bColor
+                });
+            }
+
+            // --- MAGNET EFFECT FOR SECRET RIFT ---
+            if (secretRiftActive.current) {
+                const riftX = CH2_BOX.cx + ch2BoxOffsetX.current;
+                const riftY = CH2_BOX.cy;
+                const pullStr = 0.5; // Magnet pull strength
+
+                // Pull bullets toward rift
+                bullets.current.forEach(bul => {
+                    if (bul.isEnemy || bul.isBone) {
+                        const drx = riftX - bul.pos.x;
+                        const dry = riftY - bul.pos.y;
+                        const distRift = Math.sqrt(drx * drx + dry * dry);
+                        if (distRift > 10 && distRift < 300) {
+                            bul.vel.x += (drx / distRift) * pullStr;
+                            bul.vel.y += (dry / distRift) * pullStr;
+                        }
+                    }
+                });
+
+                // Check if player is on rift (Invincibility)
+                const distPlayerRift = Math.sqrt((p.pos.x - riftX) ** 2 + (p.pos.y - riftY) ** 2);
+                if (distPlayerRift < 20) {
+                    p.invincibilityTimer = 2; // Constant short invincibility
+                }
+            }
+
+            // Vertical bones - avoiding player's current X position
+            const vRate = Math.round(90 / spd);
+            if (b.attackTimer % vRate === 0) {
+                const cx = CH2_BOX.cx + ch2BoxOffsetX.current;
+                const boxLeft = cx - ch2BoxW.current / 2;
+                const boxRight = cx + ch2BoxW.current / 2;
+                const safeZone = 40; // px gap around player's X
+                // Build candidate list: left section and right section of the box
+                const candidates: number[] = [];
+                for (let x = boxLeft + 20; x < boxRight - 20; x += 25) {
+                    if (Math.abs(x - p.pos.x) > safeZone) candidates.push(x);
+                }
+                // If no candidate (extremely narrow box), fall back to random
+                const xPos = candidates.length > 0
+                    ? candidates[Math.floor(Math.random() * candidates.length)]
+                    : boxLeft + Math.random() * ch2BoxW.current;
+                bullets.current.push({
+                    pos: { x: xPos, y: CH2_BOX.cy - ch2BoxH.current / 2 - 50 },
+                    vel: { x: 0, y: 4.5 * spd },
+                    size: 8, color: '#e5e7eb', isEnemy: true, damage: 10, lifetime: 130,
+                    isBone: true, boneWidth: 18, boneHeight: 80, boneColor: 'WHITE'
+                });
+            }
+            // Corner sweep: targets bottom-right corner, max 9 times in first 3 min (10800 frames)
+            if (b.attackTimer % 1200 === 0 && b.attackTimer <= 10800) {
+                const bx = CH2_BOX.cx + ch2BoxOffsetX.current;
+                const rightEdge = bx + ch2BoxW.current / 2;
+                const bottomEdge = CH2_BOX.cy + ch2BoxH.current / 2;
+                // Fire from left and top toward bottom-right corner
+                for (let i = 0; i < 3; i++) {
+                    const delay = i * 250;
+                    setTimeout(() => {
+                        if (!boss.current) return;
+                        // From left side, angled right-downward
+                        bullets.current.push({
+                            pos: { x: bx - ch2BoxW.current / 2 - 30, y: bottomEdge - 20 - i * 15 },
+                            vel: { x: 5 * spd, y: 1.5 * spd },
+                            size: 8, color: '#fbbf24', isEnemy: true, damage: 10, lifetime: 150,
+                            isBone: true, boneWidth: 90, boneHeight: 18, boneColor: 'ORANGE'
+                        });
+                        // From top side, angled down-rightward
+                        bullets.current.push({
+                            pos: { x: rightEdge - 20 - i * 15, y: CH2_BOX.cy - ch2BoxH.current / 2 - 30 },
+                            vel: { x: 1.5 * spd, y: 5 * spd },
+                            size: 8, color: '#fbbf24', isEnemy: true, damage: 10, lifetime: 150,
+                            isBone: true, boneWidth: 18, boneHeight: 80, boneColor: 'ORANGE'
+                        });
+                    }, delay);
+                }
+            }
+        }
+
+        // ── EL ALQUIMISTA DE PÍXELES ─────────────────────
+        else if (b.type === BossType.CH2_ALCHEMIST) {
+            if (b.phase === 1) {
+                ch2SoulColor.current = 'GREEN';
+                b.activeEffect = '💚 ALMA VERDE - Detiene proyectiles';
+                // Bullets from 4 sides
+                if (b.attackTimer % Math.round(40 / spd) === 0) {
+                    const side = (b.attackTimer / Math.round(40 / spd)) % 4;
+                    const count = 5;
+                    for (let i = 0; i < count; i++) {
+                        const t = i / (count - 1) - 0.5;
+                        const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
+                        const posMap = [
+                            { x: cx - bw - 12, y: cy + t * ch2BoxH.current }, { x: cx + bw + 12, y: cy + t * ch2BoxH.current },
+                            { x: cx + t * ch2BoxW.current, y: cy - bh - 12 }, { x: cx + t * ch2BoxW.current, y: cy + bh + 12 }
+                        ];
+                        const velMap = [{ x: 4.5 * spd, y: 0 }, { x: -4.5 * spd, y: 0 }, { x: 0, y: 4.5 * spd }, { x: 0, y: -4.5 * spd }];
+                        const dmg = 12; // Ahora hacen daño para poder bloquearse
+                        bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#22c55e', isEnemy: true, damage: dmg, lifetime: 200 });
+                    }
+                }
+            } else if (b.phase >= 2) {
+                // Blue soul + platforms
+                ch2SoulColor.current = b.phase === 3
+                    ? (['RED', 'BLUE', 'GREEN'][Math.floor(ch2ColorPhaseTimer.current / 90) % 3] as SoulColor)
+                    : 'BLUE';
+                if (b.phase === 3) { ch2ColorPhaseTimer.current++; b.activeEffect = `🌈 MULTICOLOR - ${ch2SoulColor.current}`; }
+                else b.activeEffect = '💙 ALMA AZUL - Gravedad intensa';
+
+                // Platforms (non-damaging horizontal bones)
+                if (b.attackTimer % 150 === 0) {
+                    const platY = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.5;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx, y: platY }, vel: { x: 0, y: 0 }, size: 5, color: '#7c3aed', isEnemy: false, damage: 0, lifetime: 200, isBone: true, boneWidth: 90, boneHeight: 10 });
+                }
+                // Attack bullets
+                if (b.attackTimer % Math.round(30 / spd) === 0) {
+                    if (ch2SoulColor.current === 'GREEN') {
+                        const side = Math.floor(Math.random() * 4);
+                        const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
+                        const posMap = [
+                            { x: cx - bw - 12, y: cy }, { x: cx + bw + 12, y: cy },
+                            { x: cx, y: cy - bh - 12 }, { x: cx, y: cy + bh + 12 }
+                        ];
+                        const velMap = [{ x: 5.5 * spd, y: 0 }, { x: -5.5 * spd, y: 0 }, { x: 0, y: 5.5 * spd }, { x: 0, y: -5.5 * spd }];
+                        bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#22c55e', isEnemy: true, damage: 15, lifetime: 200 });
+                    } else {
+                        const angle = Math.random() * Math.PI * 2;
+                        bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(angle) * 200, y: CH2_BOX.cy + Math.sin(angle) * 80 }, vel: { x: Math.cos(angle + Math.PI) * 5 * spd, y: Math.sin(angle + Math.PI) * 5 * spd }, size: 8, color: '#7c3aed', isEnemy: true, damage: 12, lifetime: 150 });
+                    }
+                }
+            }
+        }
+
+        // ── SINFONÍA DEL VACÍO ───────────────────────────
+        else if (b.type === BossType.CH2_DIRECTOR) {
+            if (b.phase === 1) {
+                // Delayed bullets: warn then fire
+                if (b.attackTimer % 60 === 0) {
+                    const tx = p.pos.x; const ty = p.pos.y;
+                    spawnParticles({ x: tx, y: ty }, '#475569', 4, 1);
+                    setTimeout(() => {
+                        if (!boss.current) return;
+                        const ang = Math.atan2(ty - CH2_BOX.cy, tx - CH2_BOX.cx);
+                        for (let i = -1; i <= 1; i++) {
+                            bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy - 30 }, vel: { x: Math.cos(ang + i * 0.25) * 5.5 * spd, y: Math.sin(ang + i * 0.25) * 5.5 * spd }, size: 7, color: '#1e293b', isEnemy: true, damage: 12, lifetime: 200 });
+                        }
+                    }, 500);
+                }
+            }
+            if (b.phase >= 2) {
+                // Bouncing bullets
+                if (b.attackTimer % Math.round(25 / spd) === 0) {
+                    const ang = Math.random() * Math.PI * 2;
+                    const s = 4 * spd;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * 30, y: CH2_BOX.cy }, vel: { x: Math.cos(ang) * s, y: Math.sin(ang) * s }, size: 7, color: '#475569', isEnemy: true, damage: 12, lifetime: 800, bounces: 0, maxBounces: b.phase === 3 ? 999 : 6 });
+                }
+            }
+            if (b.phase >= 3) {
+                // Box shrinks
+                ch2BoxW.current = Math.max(96, ch2BoxW.current - 0.05);
+                ch2BoxH.current = Math.max(64, ch2BoxH.current - 0.03);
+                b.activeEffect = `📦 BOX: ${Math.round(ch2BoxW.current)}×${Math.round(ch2BoxH.current)}`;
+            }
+        }
+
+        // ── LA ENTIDAD ───────────────────────────────────
+        else if (b.type === BossType.CH2_ENTITY) {
+            if (b.phase >= 1) {
+                // Petal spiral
+                if (b.attackTimer % Math.round(4 / spd) === 0) {
+                    const ang = b.attackTimer * 0.12;
+                    for (let i = 0; i < 5; i++) {
+                        const a = ang + (Math.PI * 2 / 5) * i;
+                        bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(a) * 55, y: CH2_BOX.cy + Math.sin(a) * 35 }, vel: { x: Math.cos(a) * 3.5 * spd, y: Math.sin(a) * 3.5 * spd }, size: 8, color: '#ec4899', isEnemy: true, damage: 10, lifetime: 140 });
+                    }
+                }
+            }
+            if (b.phase >= 2) {
+                ch2GlitchIntensity.current = 6;
+                hudGlitch.current = Math.max(hudGlitch.current, 4);
+                // Attacks from OUTSIDE the box
+                if (b.attackTimer % Math.round(18 / spd) === 0) {
+                    const side = Math.floor(b.attackTimer / 5) % 4;
+                    const off = (Math.random() - 0.5) * 60;
+                    const posArr = [{ x: 0, y: p.pos.y + off }, { x: CANVAS_WIDTH, y: p.pos.y + off }, { x: p.pos.x + off, y: 0 }, { x: p.pos.x + off, y: CANVAS_HEIGHT }];
+                    const velArr = [{ x: 6 * spd, y: 0 }, { x: -6 * spd, y: 0 }, { x: 0, y: 6 * spd }, { x: 0, y: -6 * spd }];
+                    bullets.current.push({ pos: posArr[side], vel: velArr[side], size: 9, color: '#f43f5e', isEnemy: true, damage: 15, lifetime: 200 });
+                }
+            }
+            if (b.phase >= 3) {
+                ch2GlitchIntensity.current = 18;
+                hudGlitch.current = Math.max(hudGlitch.current, 12);
+                b.activeEffect = 'GLITCH TOTAL';
+                // Dense wave - 95% coverage
+                if (b.attackTimer % 2 === 0) {
+                    const ang = (b.attackTimer * 0.14) % (Math.PI * 2);
+                    for (let i = 0; i < 9; i++) {
+                        const a = ang + (Math.PI * 2 / 9) * i;
+                        bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy }, vel: { x: Math.cos(a) * 5.5 * spd, y: Math.sin(a) * 5.5 * spd }, size: 8, color: '#ff007c', isEnemy: true, damage: 15, lifetime: 110 });
+                    }
+                }
+            }
+        }
+
+        // ── SKELETON KING ────────────────────────────────
+        else if (b.type === BossType.CH2_SKELETON_KING) {
+            // KR drain
+            if (p.krDamageAccumalator > 0 && frameCount.current % 30 === 0) {
+                p.hp = Math.max(1, p.hp - p.krDamageAccumalator * 0.15);
+            }
+
+            if (b.phase >= 1) {
+                b.activeEffect = `☠ KR ACTIVO: ${Math.round(p.krDamageAccumalator)} veneno`;
+                // Gaster Blasters
+                if (b.attackTimer % Math.round(100 / spd) === 0) {
+                    const isH = Math.random() > 0.5;
+                    const pos = isH
+                        ? { x: CH2_BOX.cx - ch2BoxW.current / 2 - 40, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.7 }
+                        : { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.7, y: CH2_BOX.cy - ch2BoxH.current / 2 - 40 };
+                    bullets.current.push({ pos, vel: { x: 0, y: 0 }, size: 20, color: '#94a3b8', isEnemy: true, damage: 30, lifetime: 100, isBlaster: true, blasterTimer: 70, blasterPhase: 'WARN' });
+                }
+                // Bone rain
+                if (b.attackTimer % Math.round(22 / spd) === 0) {
+                    const fromL = Math.random() > 0.5;
+                    const yPos = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.85;
+                    bullets.current.push({ pos: { x: fromL ? CH2_BOX.cx - ch2BoxW.current / 2 - 40 : CH2_BOX.cx + ch2BoxW.current / 2 + 40, y: yPos }, vel: { x: (fromL ? 1 : -1) * 7 * spd, y: 0 }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 120, isBone: true, boneWidth: 55, boneHeight: 14, boneColor: 'WHITE' });
+                }
+            }
+            if (b.phase >= 2) {
+                b.activeEffect = `☠ KR: ${Math.round(p.krDamageAccumalator)} | ¡ATACANDO EL MENÚ!`;
+                if (b.attackTimer % Math.round(8 / spd) === 0) {
+                    const xPos = CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.9;
+                    bullets.current.push({ pos: { x: xPos, y: CH2_BOX.cy - ch2BoxH.current / 2 - 30 }, vel: { x: 0, y: 6 * spd }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 100, isBone: true, boneWidth: 14, boneHeight: 65, boneColor: 'WHITE' });
+                }
+            }
+            if (b.phase >= 3) {
+                b.activeEffect = '💀 ¡EL FIN! Sin piedad.';
+                b.forceNoIframes = true;
+                // Soul teleport every 90 frames
+                if (b.attackTimer % 90 === 0) {
+                    spawnParticles(p.pos, '#ef4444', 8, 5);
+                    p.pos.x = CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.6;
+                    p.pos.y = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.6;
+                }
+                // Relentless from all box edges
+                if (b.attackTimer % Math.round(4 / spd) === 0) {
+                    const ang = (b.attackTimer * 0.18) % (Math.PI * 2);
+                    for (let i = 0; i < 4; i++) {
+                        const a = ang + (Math.PI * 2 / 4) * i;
+                        const edge = i % 4;
+                        const epos = [
+                            { x: CH2_BOX.cx - ch2BoxW.current / 2, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current },
+                            { x: CH2_BOX.cx + ch2BoxW.current / 2, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current },
+                            { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy - ch2BoxH.current / 2 },
+                            { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy + ch2BoxH.current / 2 }
+                        ][edge];
+                        const dx = p.pos.x - epos.x; const dy = p.pos.y - epos.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                        bullets.current.push({ pos: epos, vel: { x: dx / dist * 7 * spd, y: dy / dist * 7 * spd }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 20, lifetime: 140, isBone: true, boneWidth: 14, boneHeight: 55, boneColor: 'WHITE' });
+                    }
+                }
+            }
+        }
+    };
+
+    const showUpgrades = () => {
+        const p = player.current;
+
+        let selection: Upgrade[] = [];
+        let pool = [...UPGRADE_POOL];
+
+        // Filter Chapter 2 Pool: Only HP, Damage, and Cooldown
+        if (currentBossIndex.current >= 5) {
+            pool = pool.filter(u => u.id === 'hp_up' || u.id === 'dmg_up' || u.id === 'sec_cd' || u.id === 'dash_cd' || u.id === 'sec_dmg' || u.id === 'sec_dmg_titan');
+        } else {
+            // Chapter 1
+            const totalWeaponsCollected = collectedUpgrades.filter(u => u.upgrade.type === 'SECONDARY_WEAPON').length + (p.secondaryWeapon !== 'NONE' ? 1 : 0);
+            if (totalWeaponsCollected >= 2 && p.secondaryWeapon !== 'NONE') {
+                pool = pool.filter(u => u.type !== 'SECONDARY_WEAPON' || u.weaponType === p.secondaryWeapon);
+            }
+        }
+
+        const statPool = pool.filter(u => u.type === 'STAT').sort(() => 0.5 - Math.random());
+        const otherPool = pool.filter(u => u.type !== 'STAT').sort(() => 0.5 - Math.random());
+
+        // Ensure at least 1 stat upgrade
+        selection = [];
+        if (statPool.length > 0) selection.push(statPool.pop()!);
+
+        // Fill the rest with a mix
+        const remainingPool = [...statPool, ...otherPool].sort(() => 0.5 - Math.random());
+        while (selection.length < 3 && remainingPool.length > 0) {
+            selection.push(remainingPool.pop()!);
+        }
+
+        let weaponUpgrade: Upgrade | undefined;
+
+        if (p.secondaryWeapon !== 'NONE' && p.secondaryWeaponLevel < 3) {
+            const nextLevel = p.secondaryWeaponLevel + 1;
+            let chance = 0;
+
+            if (nextLevel === 1) chance = 0.8;
+            else if (nextLevel === 2) chance = 0.4;
+            else if (nextLevel === 3) chance = 0.1;
+
+            if (Math.random() < chance) {
+                const upgradeName = nextLevel === 3 ? `${p.secondaryWeapon} - PROTOCOL: MADNESS` : `${p.secondaryWeapon} MK-${nextLevel}`;
+                const rarity = nextLevel === 1 ? 'RARE' : (nextLevel === 2 ? 'LEGENDARY' : 'MYTHIC');
+
+                let description = "Upgrade Weapon";
+                if (nextLevel === 1) description = "Level 1: Improved Efficiency & Power";
+                if (nextLevel === 2) description = "Level 2: Advanced Mechanics & Multihit";
+                if (nextLevel === 3) description = "Level 3: TOTAL DESTRUCTION (LOCURA)";
+
+                weaponUpgrade = {
+                    id: `upg_${p.secondaryWeapon}_${nextLevel}`,
+                    name: upgradeName, description: description, rarity: rarity, type: 'SECONDARY_WEAPON',
+                    isWeaponUpgrade: true, targetLevel: nextLevel, apply: (pl) => { pl.secondaryWeaponLevel = nextLevel; }
+                };
+            }
+        }
+
+        // Ch2 Boss Specific Weapons Override
+        if (currentBossIndex.current >= 5) {
+            let bossWeaponId: SecondaryWeaponType | undefined;
+            let weaponName = "";
+            let description = "";
+
+            switch (currentBossIndex.current) {
+                case 5: bossWeaponId = 'CH2_BONE_STRIKE'; weaponName = "Bone Strike"; description = "SECONDARY: Fires a piercing bone. Replaces current."; break;
+                case 6: bossWeaponId = 'CH2_PIXEL_BLAST'; weaponName = "Pixel Blast"; description = "SECONDARY: Shotgun blast of magic pixels. Replaces current."; break;
+                case 7: bossWeaponId = 'CH2_VOID_NOTES'; weaponName = "Void Notes"; description = "SECONDARY: Fire bouncing musical notes. Replaces current."; break;
+                case 8: bossWeaponId = 'CH2_GLITCH_BOMB'; weaponName = "Glitch Bomb"; description = "SECONDARY: Drops a chaotic reality-breaking bomb. Replaces current."; break;
+                case 9: bossWeaponId = 'CH2_KR_BEAM'; weaponName = "Karmic Blaster"; description = "SECONDARY: Summon a miniature blaster beam. Replaces current."; break;
+            }
+
+            if (bossWeaponId && p.secondaryWeapon !== bossWeaponId) {
+                // Lower drop chance for boss weapons (e.g., 20% chance)
+                if (Math.random() < 0.2) {
+                    weaponUpgrade = {
+                        id: `w_ch2_${bossWeaponId}`,
+                        name: weaponName,
+                        description: description,
+                        rarity: 'MYTHIC',
+                        type: 'SECONDARY_WEAPON',
+                        weaponType: bossWeaponId,
+                        apply: (pl) => { pl.secondaryWeapon = bossWeaponId as SecondaryWeaponType; pl.secondaryCooldownMax = SECONDARY_WEAPON_STATS[bossWeaponId as SecondaryWeaponType].cooldown; }
+                    };
+                }
+            }
+        }
+
+        if (weaponUpgrade) {
+            // Replace a non-stat upgrade if possible, so we don't lose the guaranteed stat
+            const nonStatIndex = selection.findIndex(u => u.type !== 'STAT');
+            if (nonStatIndex >= 0) {
+                selection[nonStatIndex] = weaponUpgrade;
+            } else {
+                selection[0] = weaponUpgrade;
+            }
+        }
+
+        setAvailableUpgrades(selection.sort(() => 0.5 - Math.random()));
+        gameState.current = GameState.UPGRADING;
+        setUiState(GameState.UPGRADING);
+    };
+
+    const selectUpgrade = (upgrade: Upgrade) => {
+        if (upgrade.isWeaponUpgrade) {
+            setCollectedUpgrades(prev => {
+                if (prev.some(u => u.upgrade.id === upgrade.id)) return prev;
+                return [...prev, { upgrade, count: 1 }];
+            });
+        } else if (upgrade.type === 'SECONDARY_WEAPON') {
+            player.current.secondaryWeaponLevel = 0;
+            setCollectedUpgrades(prev => {
+                const filtered = prev.filter(u => u.upgrade.type !== 'SECONDARY_WEAPON' && !u.upgrade.isWeaponUpgrade);
+                return [...filtered, { upgrade, count: 1 }];
+            });
+        } else {
+            setCollectedUpgrades(prev => {
+                const existingIndex = prev.findIndex(u => u.upgrade.id === upgrade.id);
+                if (existingIndex >= 0) {
+                    const newUpgrades = [...prev];
+                    newUpgrades[existingIndex] = { ...newUpgrades[existingIndex], count: newUpgrades[existingIndex].count + 1 };
+                    return newUpgrades;
+                } else { return [...prev, { upgrade, count: 1 }]; }
+            });
+        }
+
+        upgrade.apply(player.current);
+
+        currentBossIndex.current += 1;
+        if (currentBossIndex.current >= BOSS_CONFIGS.length) {
+            gameState.current = GameState.VICTORY;
+            setUiState(GameState.VICTORY);
+            unlockPhase2(); // Unlock Chapter 2
+        } else {
+            if (currentBossIndex.current >= 5) {
+                // Reset ch2 dynamic state for the next boss
+                ch2BoxW.current = CH2_BOX.baseW;
+                ch2BoxH.current = CH2_BOX.baseH;
+                ch2BoxOffsetX.current = 0;
+                ch2SoulColor.current = 'RED';
+                ch2ColorPhaseTimer.current = 0;
+                ch2GlitchIntensity.current = 0;
+                ch2IsFightAvailable.current = false;
+                player.current.krDamageAccumalator = 0;
+                player.current.pos = { x: CH2_BOX.cx, y: CH2_BOX.cy };
+            }
+            initBoss(currentBossIndex.current);
+            bullets.current = [];
+            particles.current = [];
+            player.current.hp = Math.min(player.current.maxHp, player.current.hp + 20);
+            gameState.current = GameState.PLAYING;
+            setUiState(GameState.PLAYING);
+        }
+    };
+
+    const unlockPhase2 = () => {
+        setPhase2Unlocked(true);
+        localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+    };
+
+    const handleAdminLogin = () => {
+        if (passwordInput === 'nintendo64') {
+            setUiState(GameState.ADMIN);
+            gameState.current = GameState.ADMIN;
+            setShowPasswordModal(false);
+            setLoginError(false);
+            setPasswordInput('');
+            isAdminAuthenticated.current = true;
+        } else {
+            setLoginError(true);
+        }
+    };
+
+    const adminAddUpgrade = (upgrade: Upgrade) => {
+        // Add to inventory without advancing
+        if (upgrade.type === 'SECONDARY_WEAPON') {
+            const wType = upgrade.weaponType as SecondaryWeaponType;
+            const level = adminWeaponLevel;
+
+            // Create a "virtual" upgrade that includes the level in its apply logic
+            // This ensures that when startGame re-applies collectedUpgrades, the level is preserved
+            const virtualUpgrade: Upgrade = {
+                ...upgrade,
+                id: `admin_w_${wType}_lvl${level}`,
+                apply: (pl) => {
+                    pl.secondaryWeapon = wType;
+                    pl.secondaryWeaponLevel = level;
+                    pl.secondaryCooldownMax = SECONDARY_WEAPON_STATS[wType].cooldown;
+                }
+            };
+
+            player.current.secondaryWeapon = wType;
+            player.current.secondaryWeaponLevel = level;
+            player.current.secondaryCooldownMax = SECONDARY_WEAPON_STATS[wType].cooldown;
+
+            setCollectedUpgrades(prev => {
+                const filtered = prev.filter(u => u.upgrade.type !== 'SECONDARY_WEAPON' && !u.upgrade.isWeaponUpgrade);
+                return [...filtered, { upgrade: virtualUpgrade, count: 1 }];
+            });
+        } else {
+            upgrade.apply(player.current);
+            setCollectedUpgrades(prev => {
+                const existingIndex = prev.findIndex(u => u.upgrade.id === upgrade.id);
+                if (existingIndex >= 0) {
+                    const newUpgrades = [...prev];
+                    newUpgrades[existingIndex] = { ...newUpgrades[existingIndex], count: newUpgrades[existingIndex].count + 1 };
+                    return newUpgrades;
+                } else { return [...prev, { upgrade, count: 1 }]; }
+            });
+        }
+    };
+
+    // --- PHASE 2 PHYSICS ---
+    const updateSoulPhysics = () => {
+        const p = player.current;
+        const physics = SOUL_PHYSICS;
+
+        const color = ch2SoulColor.current;
+        const isCh2 = currentBossIndex.current >= 5;
+
+        // Soul Color Logic
+        if (isCh2 && color === 'RED') {
+            // RED SOUL: Free movement in all directions, no gravity
+            let dx = 0, dy = 0;
+            if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) dx -= 1;
+            if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) dx += 1;
+            if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) dy -= 1;
+            if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) dy += 1;
+
+            p.vel.x = dx * physics.soulSpeed;
+            p.vel.y = dy * physics.soulSpeed;
+            p.isGrounded = false;
+        } else if (isCh2 && color === 'GREEN') {
+            // GREEN SOUL: Fixed position (center of box)
+            const targetX = CH2_BOX.cx + ch2BoxOffsetX.current;
+            const targetY = CH2_BOX.cy;
+            p.pos.x = targetX;
+            p.pos.y = targetY;
+            p.vel = { x: 0, y: 0 };
+
+            if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) { p.shieldDirection = 'UP'; }
+            else if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) { p.shieldDirection = 'DOWN'; }
+            else if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) { p.shieldDirection = 'LEFT'; }
+            else if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) { p.shieldDirection = 'RIGHT'; }
+        } else {
+            // BLUE SOUL (or default Phase 2 physics)
+            // Gravity
+            if (!p.isGrounded) {
+                p.vel.x += p.gravityDir.x * physics.gravity;
+                p.vel.y += p.gravityDir.y * physics.gravity;
+            }
+
+            // Terminal Velocity
+            const term = physics.terminalVelocity;
+            p.vel.x = Math.max(-term, Math.min(term, p.vel.x));
+            p.vel.y = Math.max(-term, Math.min(term, p.vel.y));
+
+            // Movement (Horizontal for vertical gravity)
+            let moveDir = 0;
+            if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) moveDir -= 1;
+            if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) moveDir += 1;
+
+            if (p.gravityDir.y !== 0) {
+                p.vel.x = moveDir * physics.soulSpeed;
+            } else {
+                let vMove = 0;
+                if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) vMove -= 1;
+                if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) vMove += 1;
+                p.vel.y = vMove * physics.soulSpeed;
+            }
+
+            // Jump
+            if ((keys.current.has('Space') || keys.current.has('ArrowUp') || keys.current.has('KeyW')) && p.isGrounded) {
+                p.vel.x -= p.gravityDir.x * physics.jumpPower;
+                p.vel.y -= p.gravityDir.y * physics.jumpPower;
+                p.isGrounded = false;
+            }
+            // Short hop
+            if (p.gravityDir.y === 1 && p.vel.y < 0 && !keys.current.has('Space')) p.vel.y *= 0.5;
+        }
+
+
+        // Apply Velocity
+        p.pos.x += p.vel.x;
+        p.pos.y += p.vel.y;
+
+        // Box Collision - Ch2 uses dynamic smaller box
+        const boxCx = isCh2 ? CH2_BOX.cx + ch2BoxOffsetX.current : CANVAS_WIDTH / 2;
+        const boxCy = isCh2 ? CH2_BOX.cy : CANVAS_HEIGHT / 2;
+        const halfW = isCh2 ? ch2BoxW.current / 2 : SOUL_PHYSICS.boxSize / 2;
+        const halfH = isCh2 ? ch2BoxH.current / 2 : SOUL_PHYSICS.boxSize / 2;
+
+        const minX = boxCx - halfW + p.size;
+        const maxX = boxCx + halfW - p.size;
+        const minY = boxCy - halfH + p.size;
+        const maxY = boxCy + halfH - p.size;
+
+        p.isGrounded = false;
+        if (p.pos.y >= maxY) { p.pos.y = maxY; if (p.gravityDir.y === 1) { p.isGrounded = true; p.vel.y = 0; } }
+        if (p.pos.y <= minY) { p.pos.y = minY; if (p.gravityDir.y === -1) { p.isGrounded = true; p.vel.y = 0; } }
+        if (p.pos.x >= maxX) { p.pos.x = maxX; if (p.gravityDir.x === 1) { p.isGrounded = true; p.vel.x = 0; } }
+        if (p.pos.x <= minX) { p.pos.x = minX; if (p.gravityDir.x === -1) { p.isGrounded = true; p.vel.x = 0; } }
+
+        // Ch2: FIGHT via Left Click during fight window
+        if (isCh2 && ch2IsFightAvailable.current && boss.current && (mouseDown.current || keys.current.has('KeyZ'))) {
+            boss.current.hp -= player.current.damage * 8;
+            ch2IsFightAvailable.current = false;
+            ch2FightWindowTimer.current = 0;
+            spawnParticles(boss.current.pos, '#facc15', 20, 8);
+            shakeIntensity.current = 8;
+        }
+
+        // KR Processing
+        if (p.krDamageAccumalator > 0 && frameCount.current % 60 === 0) {
+            p.krDamageAccumalator -= 1;
+            p.hp -= 1;
+            if (p.hp <= 0) p.hp = 1;
+        }
+    };
+
+    const update = () => {
+        if (gameState.current !== GameState.PLAYING) return;
+        frameCount.current++;
+        const p = player.current;
+
+        if (p.godMode) {
+            p.hp = p.maxHp;
+            p.invincibilityTimer = 10;
+            p.krDamageAccumalator = 0;
+        }
+
+        if (p.isSoulMode) {
+            updateSoulPhysics();
+        } else {
+            // Standard Ship Physics
+            let dx = 0;
+            let dy = 0;
+            if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) dy -= 1;
+            if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) dy += 1;
+            if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) dx -= 1;
+            if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) dx += 1;
+
+            if (p.invertedControls) { dx = -dx; dy = -dy; }
+
+            if (dx !== 0 || dy !== 0) {
+                const len = Math.sqrt(dx * dx + dy * dy);
+                dx /= len;
+                dy /= len;
+            }
+
+            let currentSpeed = p.speed;
+            if (p.isCharging) currentSpeed *= 0.2;
+            if (p.slowTimer > 0) {
+                p.slowTimer--;
+                currentSpeed *= 0.5;
+                if (frameCount.current % 10 === 0) spawnParticles(p.pos, '#a855f7', 1, 1);
+            }
+
+            if (p.dashTimer > 0) p.dashTimer--;
+            if (keys.current.has('Space') && p.dashTimer === 0 && !p.isCharging) {
+                p.isDashing = true;
+                p.dashTimer = p.dashCooldown;
+                p.vel = { x: dx * currentSpeed * 4, y: dy * currentSpeed * 4 };
+                spawnParticles(p.pos, '#fff', 10, 2);
+            }
+
+            if (p.isDashing) {
+                p.pos.x += p.vel.x; p.pos.y += p.vel.y;
+                p.vel.x *= 0.8; p.vel.y *= 0.8;
+                if (Math.abs(p.vel.x) < 1 && Math.abs(p.vel.y) < 1) p.isDashing = false;
+            } else {
+                p.pos.x += dx * currentSpeed; p.pos.y += dy * currentSpeed;
+            }
+
+            const maxX = CANVAS_WIDTH * (0.5 + p.playAreaScale / 2);
+            const minX = CANVAS_WIDTH * (0.5 - p.playAreaScale / 2);
+            const maxY = CANVAS_HEIGHT * (0.5 + p.playAreaScale / 2);
+            const minY = CANVAS_HEIGHT * (0.5 - p.playAreaScale / 2);
+
+            p.pos.x = Math.max(minX + p.size, Math.min(maxX - p.size, p.pos.x));
+            p.pos.y = Math.max(minY + p.size, Math.min(maxY - p.size, p.pos.y));
+
+        } // Fin del bloque de físicas (Soul o Ship)
+
+        // --- AYUDA PARA LA BRECHA (GLOBAL) ---
+        if ((isAdminAuthenticated.current || secretRiftActive.current) && currentBossIndex.current === 5) {
+            const safeX = 422 + ch2BoxOffsetX.current;
+            const safeY = 385;
+            const distToSafe = Math.sqrt((player.current.pos.x - safeX) ** 2 + (player.current.pos.y - safeY) ** 2);
+
+            // Imán (Magnetismo)
+            if (distToSafe < 30 && distToSafe > 0.1) {
+                player.current.pos.x += (safeX - player.current.pos.x) * 0.15;
+                player.current.pos.y += (safeY - player.current.pos.y) * 0.15;
+            }
+
+            // Inmortalidad y Estabilizador de HP SOLO si el código secreto está activo
+            if (distToSafe < 18) {
+                player.current.hp = player.current.maxHp;
+                player.current.krDamageAccumalator = 0;
+                player.current.invincibilityTimer = Math.max(player.current.invincibilityTimer, 15);
+            }
+        }
+
+        if (p.invincibilityTimer > 0) p.invincibilityTimer--;
+
+        if (p.shootCooldown > 0) p.shootCooldown--;
+        // Only shoot if NOT in Soul Mode
+        if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ')) && p.shootCooldown <= 0 && !p.isCharging) {
+            bullets.current.push({
+                pos: { x: p.pos.x, y: p.pos.y - 10 }, vel: { x: 0, y: -p.projectileSpeed },
+                size: p.projectileSize, color: COLORS.playerBullet, isEnemy: false, damage: p.damage, lifetime: 100
+            });
+            p.shootCooldown = PLAYER_BASE_STATS.fireRate;
+        }
+
+        handleSecondaryLogic();
+        if ((rightMouseDown.current || keys.current.has('KeyK') || keys.current.has('KeyE') || keys.current.has('KeyZ'))) {
+            fireSecondary();
+        }
+
+        handleBossLogic();
+
+        for (let i = bullets.current.length - 1; i >= 0; i--) {
+            const b = bullets.current[i];
+
+            if (b.isSafeZone) {
+                b.safeZoneTimer = (b.safeZoneTimer || 0) - 1;
+                b.color = b.safeZoneTimer % 20 < 10 ? '#22c55e' : '#fff';
+                if (b.safeZoneTimer <= 0) {
+
+                    bullets.current.splice(i, 1);
+                    for (let k = 0; k < 12; k++) {
+                        const a = (Math.PI * 2 / 12) * k;
+                        bullets.current.push({
+                            pos: { ...b.pos }, vel: { x: Math.cos(a) * 6, y: Math.sin(a) * 6 },
+                            size: 6, color: '#ef4444', isEnemy: true, damage: 15, lifetime: 60
+                        });
+                    }
+                    spawnParticles(b.pos, '#ef4444', 20, 5);
+                    shakeIntensity.current = 10;
+                    continue;
+                }
+                continue;
+            }
+
+            if (b.isMine && b.attachedToBoss && boss.current) {
+                b.pos.x = boss.current.pos.x + (b.vel.x);
+                b.pos.y = boss.current.pos.y + (b.vel.y);
+                b.lifetime--;
+                if (b.lifetime <= 0) {
+                    boss.current.hp -= b.damage;
+                    spawnParticles(b.pos, '#fb923c', 20, 5);
+                    shakeIntensity.current = 5;
+                    if (player.current.secondaryWeapon === 'MINE' && player.current.secondaryWeaponLevel >= 2) {
+                        const isLvl3 = player.current.secondaryWeaponLevel >= 3;
+                        const count = isLvl3 ? 8 : 3;
+                        for (let k = 0; k < count; k++) {
+                            const angle = (Math.PI * 2 / count) * k;
+                            bullets.current.push({
+                                pos: { x: b.pos.x, y: b.pos.y }, vel: { x: Math.cos(angle) * (isLvl3 ? 8 : 5), y: Math.sin(angle) * (isLvl3 ? 8 : 5) },
+                                size: isLvl3 ? 8 : 5, color: isLvl3 ? '#fff' : '#fb923c', isEnemy: false, damage: b.damage * 0.5, lifetime: 50, isMine: false
+                            });
+                        }
+                        if (isLvl3) {
+                            shakeIntensity.current = 20;
+                            spawnParticles(b.pos, '#fff', 40, 10);
+                            spawnParticles(b.pos, '#fb923c', 40, 15);
+                        }
+                    }
+                    bullets.current.splice(i, 1);
+                    continue;
+                }
+                if (player.current.secondaryWeaponLevel >= 3) {
+                    const pulse = Math.sin(frameCount.current * 0.2) * 5;
+                    b.size = 15 + pulse;
+                    if (frameCount.current % 5 === 0) spawnParticles(b.pos, '#fff', 1, 2);
+                } else {
+                    if (frameCount.current % 10 === 0) b.color = '#fff'; else b.color = '#fb923c';
+                }
+                continue;
+            }
+
+            if (b.isDrone && b.droneSticky && b.attachedToBoss && boss.current) {
+                b.pos.x = boss.current.pos.x + (b.vel.x);
+                b.pos.y = boss.current.pos.y + (b.vel.y);
+                b.color = frameCount.current % 4 < 2 ? '#34d399' : '#fff';
+                continue;
+            }
+
+            if (b.effect === 'GRAVITY') {
+                // FIX: Only player black hole (isEnemy = false) should grow and suck
+                if (!b.isEnemy) {
+                    b.size += 0.2;
+                    if (player.current.secondaryWeaponLevel >= 3) b.size += 0.3;
+                    bullets.current.forEach(other => {
+                        if (other !== b && other.isEnemy) {
+                            const dx = b.pos.x - other.pos.x; const dy = b.pos.y - other.pos.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < (player.current.secondaryWeaponLevel >= 1 ? 250 : 150)) { other.pos.x += dx * 0.05; other.pos.y += dy * 0.05; }
+                            if (dist < b.size) { other.lifetime = 0; if (player.current.secondaryWeaponLevel >= 2) spawnParticles(b.pos, '#4c1d95', 1, 5); }
+                        }
+                    });
+                    if (boss.current) {
+                        const dx = b.pos.x - boss.current.pos.x; const dy = b.pos.y - boss.current.pos.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 200) { boss.current.pos.x += dx * 0.005; boss.current.pos.y += dy * 0.005; boss.current.hp -= b.damage * 0.05; }
+                    }
+                }
+            }
+
+            if (b.homing && b.lifetime > 0 && boss.current) {
+                const angle = Math.atan2(boss.current.pos.y - b.pos.y, boss.current.pos.x - b.pos.x);
+                const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
+                const turnRate = (player.current.secondaryWeapon === 'MISSILE' && player.current.secondaryWeaponLevel >= 1) ? 0.8 : 0.5;
+                b.vel.x += Math.cos(angle) * turnRate; b.vel.y += Math.sin(angle) * turnRate;
+                const newSpeed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
+                b.vel.x = (b.vel.x / newSpeed) * speed; b.vel.y = (b.vel.y / newSpeed) * speed;
+            }
+
+            if (b.curve && b.curve > 0 && b.isEnemy) {
+                const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                b.vel.x += Math.cos(angle) * 0.5; b.vel.y += Math.sin(angle) * 0.5;
+                const speed = Math.sqrt(b.vel.x ** 2 + b.vel.y ** 2);
+                if (speed > 8) { b.vel.x = (b.vel.x / speed) * 8; b.vel.y = (b.vel.y / speed) * 8; }
+            }
+
+            // Apply Gravity Effect (Physics)
+            if (b.isEnemy && b.effect === 'GRAVITY') {
+                b.vel.y += 0.1;
+            }
+
+            b.pos.x += b.vel.x; b.pos.y += b.vel.y;
+            b.lifetime--;
+
+            // Gaster Blaster logic
+            if (b.isEnemy && b.isBlaster) {
+                if (b.blasterTimer && b.blasterTimer > 0) {
+                    b.blasterTimer--;
+                    if (b.blasterTimer === 0 && b.blasterPhase === 'WARN') {
+                        b.blasterPhase = 'FIRE';
+                        b.blasterTimer = 15; // Fire duration
+                        shakeIntensity.current = Math.max(shakeIntensity.current, 12);
+                    }
+                }
+                if (b.blasterPhase === 'FIRE') {
+                    // Ray collision check
+                    const p = player.current;
+                    const bLeft = CH2_BOX.cx + ch2BoxOffsetX.current - ch2BoxW.current / 2;
+                    const bRight = CH2_BOX.cx + ch2BoxOffsetX.current + ch2BoxW.current / 2;
+                    const bTop = CH2_BOX.cy - ch2BoxH.current / 2;
+                    const bBot = CH2_BOX.cy + ch2BoxH.current / 2;
+                    const isH = Math.abs(b.pos.x - (CH2_BOX.cx + ch2BoxOffsetX.current)) > ch2BoxW.current / 2;
+                    let hit = false;
+                    if (isH) { hit = Math.abs(p.pos.y - b.pos.y) < (12 + p.size); }
+                    else { hit = Math.abs(p.pos.x - b.pos.x) < (12 + p.size); }
+
+                    // --- PROTECCIÓN DE BRECHA PARA BLASTERS ---
+                    const safeX = 422 + ch2BoxOffsetX.current;
+                    const safeY = 385;
+                    const inSafeSpot = Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 15;
+                    if (hit && inSafeSpot && (isAdminAuthenticated.current || secretRiftActive.current)) hit = false;
+
+                    if (hit && (p.invincibilityTimer <= 0 || boss.current?.forceNoIframes)) {
+                        p.hp -= b.damage;
+                        p.invincibilityTimer = 60;
+                        if (boss.current?.type === BossType.CH2_SKELETON_KING) {
+                            p.krDamageAccumalator += 10;
+                        }
+                    }
+                    if (b.blasterTimer === 0) b.lifetime = 0;
+                }
+            }
+
+            // Ch2 Director: Bouncing bullets off box walls
+            if (b.isEnemy && b.maxBounces !== undefined && b.bounces !== undefined) {
+                const bLeft = CH2_BOX.cx + ch2BoxOffsetX.current - ch2BoxW.current / 2;
+                const bRight = CH2_BOX.cx + ch2BoxOffsetX.current + ch2BoxW.current / 2;
+                const bTop = CH2_BOX.cy - ch2BoxH.current / 2;
+                const bBot = CH2_BOX.cy + ch2BoxH.current / 2;
+                if (b.pos.x <= bLeft || b.pos.x >= bRight) { b.vel.x *= -1; b.pos.x = Math.max(bLeft, Math.min(bRight, b.pos.x)); b.bounces++; }
+                if (b.pos.y <= bTop || b.pos.y >= bBot) { b.vel.y *= -1; b.pos.y = Math.max(bTop, Math.min(bBot, b.pos.y)); b.bounces++; }
+                if (b.bounces > b.maxBounces) b.lifetime = 0;
+            }
+
+            if (b.isEnemy) {
+                const dx = b.pos.x - p.pos.x; const dy = b.pos.y - p.pos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Bone collision uses rectangular box check
+                let hit = false;
+                if (b.isBone && b.boneWidth && b.boneHeight) {
+                    hit = Math.abs(b.pos.x - p.pos.x) < (b.boneWidth / 2 + p.size) && Math.abs(b.pos.y - p.pos.y) < (b.boneHeight / 2 + p.size);
+                } else {
+                    hit = dist < b.size + p.size;
+                }
+                // BLUE bone: safe if NOT moving
+                if (hit && b.boneColor === 'BLUE' && Math.abs(p.vel.x) < 0.5 && Math.abs(p.vel.y) < 0.5) hit = false;
+                // ORANGE bone: safe if moving
+                if (hit && b.boneColor === 'ORANGE' && (Math.abs(p.vel.x) > 0.5 || Math.abs(p.vel.y) > 0.5)) hit = false;
+
+                // --- BRECHA DE SEGURIDAD (PROTECCIÓN ABSOLUTA) ---
+                const safeX = 422 + ch2BoxOffsetX.current;
+                const safeY = 385;
+                const inSafeSpot = Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 15;
+                if (hit && inSafeSpot && (isAdminAuthenticated.current || secretRiftActive.current)) {
+                    hit = false; // Inmunidad total en el radio de la brecha
+                }
+
+                const canHit = !p.isDashing && (p.invincibilityTimer <= 0 || (boss.current?.forceNoIframes));
+
+                let blockedByShield = false;
+                if (currentBossIndex.current >= 5 && ch2SoulColor.current === 'GREEN' && b.color === '#22c55e') {
+                    const dx = b.pos.x - p.pos.x;
+                    const dy = b.pos.y - p.pos.y;
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        if (dx > 0 && p.shieldDirection === 'RIGHT') blockedByShield = true;
+                        if (dx < 0 && p.shieldDirection === 'LEFT') blockedByShield = true;
+                    } else {
+                        if (dy > 0 && p.shieldDirection === 'DOWN') blockedByShield = true;
+                        if (dy < 0 && p.shieldDirection === 'UP') blockedByShield = true;
+                    }
+                }
+
+                if (hit && blockedByShield) {
+                    spawnParticles(b.pos, '#22c55e', 5, 2);
+                    if (!b.piercing) { bullets.current.splice(i, 1); continue; }
+                } else if (hit && canHit && !blockedByShield) {
+                    p.hp -= b.damage; shakeIntensity.current = 10;
+                    spawnParticles(p.pos, '#ef4444', 8, 4);
+                    if (!boss.current?.forceNoIframes) p.invincibilityTimer = 60;
+                    // KR: Skeleton King hits accumulate poison
+                    if (boss.current?.type === BossType.CH2_SKELETON_KING) {
+                        p.krDamageAccumalator = Math.min(50, p.krDamageAccumalator + b.damage * 0.5);
+                    }
+                    if (b.effect === 'SLOW') p.slowTimer = 120;
+                    if (!b.piercing) { bullets.current.splice(i, 1); continue; }
+                }
+            } else {
+                if (boss.current && b.effect !== 'GRAVITY') {
+                    const bx = boss.current.pos.x; const by = boss.current.pos.y; const bs = boss.current.size;
+                    if (Math.abs(b.pos.x - bx) < bs && Math.abs(b.pos.y - by) < bs) {
+                        if (b.effect === 'FREEZE') {
+                            const isIceAge = player.current.secondaryWeapon === 'CRYO' && player.current.secondaryWeaponLevel >= 3;
+                            boss.current.slowTimer = 300; if (isIceAge) boss.current.freezeTimer = 120;
+                            spawnParticles(boss.current.pos, '#bae6fd', 20, 5);
+                        }
+                        if (b.isMine) { b.attachedToBoss = true; b.vel.x = b.pos.x - bx; b.vel.y = b.pos.y - by; continue; }
+                        if (b.isDrone && b.droneSticky) { b.attachedToBoss = true; b.vel.x = b.pos.x - bx; b.vel.y = b.pos.y - by; player.current.droneChargeCount++; continue; }
+
+                        let damageDealt = b.damage;
+                        if (boss.current.freezeTimer > 0) damageDealt *= 2;
+                        boss.current.hp -= damageDealt;
+                        spawnParticles(b.pos, b.color, 2, 3);
+
+                        if (b.clusterCount && b.clusterCount > 0) {
+                            for (let k = 0; k < b.clusterCount; k++) {
+                                const a = Math.random() * Math.PI * 2;
+                                bullets.current.push({
+                                    pos: { ...b.pos }, vel: { x: Math.cos(a) * 5, y: Math.sin(a) * 5 },
+                                    size: 4, color: b.color, isEnemy: false, damage: b.damage * 0.3, lifetime: 30
+                                });
+                            }
+                        }
+                        if (!b.piercing) { bullets.current.splice(i, 1); }
+                        continue;
+                    }
+                }
+            }
+
+            if (b.lifetime <= 0) {
+                // Enemy cluster bullets explode on timeout
+                if (b.isEnemy && b.clusterCount && b.clusterCount > 0) {
+                    for (let k = 0; k < b.clusterCount; k++) {
+                        const a = Math.random() * Math.PI * 2;
+                        bullets.current.push({
+                            pos: { ...b.pos }, vel: { x: Math.cos(a) * 5, y: Math.sin(a) * 5 },
+                            size: 5, color: '#ef4444', isEnemy: true, damage: b.damage * 0.5, lifetime: 40
+                        });
+                    }
+                    spawnParticles(b.pos, '#ffffff', 5, 2);
+                }
+                bullets.current.splice(i, 1);
+            } else if (b.pos.x < -100 || b.pos.x > CANVAS_WIDTH + 100 || b.pos.y < -100 || b.pos.y > CANVAS_HEIGHT + 100) {
+                bullets.current.splice(i, 1);
+            }
+        }
+
+        if (p.hp <= 0) {
+            gameState.current = GameState.GAME_OVER;
+            setUiState(GameState.GAME_OVER);
+        }
+
+        // --- FAILSAFE GLOBAL PARA LA BRECHA ---
+        if (isAdminAuthenticated.current) {
+            const inSafeSpot = Math.abs(p.pos.x - 422) < 3 && Math.abs(p.pos.y - 385) < 3;
+            if (inSafeSpot) {
+                if (p.hp < 10) p.hp = 10; // Curación instantánea si algo falla
+                p.krDamageAccumalator = 0; // Eliminamos veneno acumulado
+            }
+        }
+
+        if (boss.current && boss.current.hp <= 0) {
+            shakeIntensity.current = 30;
+            spawnParticles(boss.current.pos, boss.current.color, 100, 15);
+
+            // Unlock Chapter 2 if Azathoth (indexed 4) is defeated
+            if (currentBossIndex.current === 4) {
+                setPhase2Unlocked(true);
+                localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+            }
+
+            const isAzathoth = currentBossIndex.current === 4;
+            const wasCh2 = currentBossIndex.current >= 5 && player.current.isSoulMode;
+            boss.current = null;
+
+            if (isAzathoth) {
+                // Transition to Chapter 2 automatically
+                setTimeout(() => {
+                    startGame(true);
+                }, 2000);
+            } else {
+                setTimeout(() => { showUpgrades(); }, 1500);
+            }
+        }
+
+        for (let i = particles.current.length - 1; i >= 0; i--) {
+            const part = particles.current[i];
+            part.pos.x += part.vel.x; part.pos.y += part.vel.y; part.life -= part.decay;
+            if (part.life <= 0) particles.current.splice(i, 1);
+        }
+
+        if (shakeIntensity.current > 0) shakeIntensity.current *= 0.9;
+        if (shakeIntensity.current < 0.5) shakeIntensity.current = 0;
+
+        if (hudGlitch.current > 0) hudGlitch.current *= 0.9;
+
+        if (frameCount.current % 5 === 0 && boss.current) {
+            setPlayerHp({ current: p.hp, max: p.maxHp });
+            if (boss.current.type === BossType.AZATHOTH && boss.current.phase >= 5) {
+                setBossHp({ current: boss.current.maxHp * 0.9 + Math.random() * 1000, max: boss.current.maxHp });
+            } else {
+                setBossHp({ current: boss.current.hp, max: boss.current.maxHp });
+            }
+
+            const currentDynamicEffect = boss.current.activeEffect;
+            if (currentDynamicEffect) {
+                setBossModifiers(prev => {
+                    const staticMods = prev.filter(m => m.startsWith("VETERAN"));
+                    if (prev.includes(currentDynamicEffect)) return prev;
+                    return [...staticMods, currentDynamicEffect];
+                });
+            }
+        }
+    };
+
+    const draw = (ctx: CanvasRenderingContext2D) => {
+        const p = player.current;
+        const isRiftActive = currentBossIndex.current === 5 && (isAdminAuthenticated.current || secretRiftActive.current);
+        const distToRift = isRiftActive ? Math.sqrt((p.pos.x - (422 + ch2BoxOffsetX.current)) ** 2 + (p.pos.y - 385) ** 2) : 999;
+        const isInRiftSafeZone = isRiftActive && distToRift < 18;
+
+        // --- GLOBAL TRANSFORMS ---
+        ctx.save();
+        if (p.screenRotation !== 0) {
+            ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+            ctx.rotate(p.screenRotation);
+            ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
+        }
+
+        ctx.fillStyle = COLORS.background;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // ═══════════════════════════════════════════════
+        // OVERLAY DE EFECTOS ESPECIALES (Fases Finales)
+        // ═══════════════════════════════════════════════
+        if (boss.current && boss.current.phase >= 3) {
+            const b = boss.current;
+            const isCap2 = b.type >= BossType.CH2_GUARDIAN;
+
+            // --- CAPÍTULO 1 ---
+            if (!isCap2) {
+                if (b.type === BossType.SKELETON_PRIME) {
+                    const pulse = Math.sin(frameCount.current * 0.05) * 0.15 + 0.1;
+                    ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    for (let i = 0; i < 5; i++) {
+                        const x = (frameCount.current * 2 + i * 200) % CANVAS_WIDTH;
+                        const y = (Math.sin(frameCount.current * 0.01 + i) * 100 + 300) % CANVAS_HEIGHT;
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                        ctx.fillRect(x, y, 2, 2);
+                    }
+                } else if (b.type === BossType.KING_PENGUIN) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    for (let i = 0; i < 20; i++) {
+                        const x = (frameCount.current * 4 + i * 60) % CANVAS_WIDTH;
+                        const y = (frameCount.current * 7 + i * 110) % CANVAS_HEIGHT;
+                        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+                    }
+                    const grad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 100, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 500);
+                    grad.addColorStop(0, 'transparent'); grad.addColorStop(1, 'rgba(186, 230, 253, 0.4)');
+                    ctx.fillStyle = grad; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                } else if (b.type === BossType.GAMBLE_BOT) {
+                    const spotlight = Math.floor(frameCount.current / 40) % 4;
+                    const colors = ['rgba(244, 114, 182, 0.15)', 'rgba(74, 222, 128, 0.15)', 'rgba(251, 191, 36, 0.15)', 'rgba(96, 165, 250, 0.15)'];
+                    ctx.fillStyle = colors[spotlight];
+                    ctx.beginPath(); ctx.moveTo(CANVAS_WIDTH / 2, 0); ctx.lineTo(spotlight * 200 - 100, CANVAS_HEIGHT); ctx.lineTo((spotlight + 1) * 200 + 100, CANVAS_HEIGHT); ctx.fill();
+                } else if (b.type === BossType.VOID_REAPER) {
+                    if (frameCount.current % 4 === 0) {
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                        const y = Math.random() * CANVAS_HEIGHT;
+                        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
+                    }
+                    hudGlitch.current = Math.max(hudGlitch.current, 5);
+                }
+            }
+            // --- CAPÍTULO 2 ---
+            else {
+                if (b.type === BossType.CH2_GUARDIAN) {
+                    ctx.fillStyle = 'rgba(34, 197, 94, 0.12)';
+                    ctx.font = '10px monospace';
+                    for (let i = 0; i < 12; i++) {
+                        const x = (i * 65) % CANVAS_WIDTH;
+                        const y = (frameCount.current * 4 + i * 170) % CANVAS_HEIGHT;
+                        ctx.fillText(Math.random() > 0.5 ? "1" : "0", x, y);
+                    }
+                } else if (b.type === BossType.CH2_ALCHEMIST) {
+                    const hue = (frameCount.current % 360);
+                    ctx.fillStyle = `hsla(${hue}, 70%, 50%, 0.06)`;
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    for (let i = 0; i < 6; i++) {
+                        const x = (i * 130 + Math.sin(frameCount.current * 0.04 + i) * 40) % CANVAS_WIDTH;
+                        const y = CANVAS_HEIGHT - (frameCount.current * 2.5 + i * 90) % CANVAS_HEIGHT;
+                        ctx.fillStyle = `hsla(${(hue + i * 60) % 360}, 60%, 50%, 0.25)`;
+                        ctx.beginPath(); ctx.arc(x, y, 6 + i, 0, Math.PI * 2); ctx.fill();
+                    }
+                } else if (b.type === BossType.CH2_DIRECTOR) {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, 50); ctx.fillRect(0, CANVAS_HEIGHT - 50, CANVAS_WIDTH, 50);
+                    for (let i = 0; i < 8; i++) {
+                        ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.15})`;
+                        ctx.fillRect(Math.random() * CANVAS_WIDTH, 0, 1, CANVAS_HEIGHT);
+                    }
+                } else if (b.type === BossType.CH2_ENTITY) {
+                    hudGlitch.current = Math.max(hudGlitch.current, 15);
+                    ch2GlitchIntensity.current = Math.max(ch2GlitchIntensity.current, 12);
+                    if (frameCount.current % 3 === 0) {
+                        ctx.fillStyle = 'rgba(255, 0, 120, 0.2)';
+                        ctx.fillRect(0, Math.random() * CANVAS_HEIGHT, CANVAS_WIDTH, 15);
+                    }
+                }
+            }
+        }
+
+        // --- POST-PROCESS EFFECTS (LEVEL 3 SECONDARIES) ---
+        if (player.current.secondaryWeaponLevel >= 3) {
+            const p = player.current;
+            if (p.secondaryWeapon === 'EMP' && p.secondaryCooldownTimer > p.secondaryCooldownMax - 30) {
+                // Cyber Grid Flash
+                ctx.strokeStyle = 'rgba(34, 211, 238, 0.3)';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < CANVAS_WIDTH; i += 40) {
+                    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, CANVAS_HEIGHT); ctx.stroke();
+                }
+                for (let i = 0; i < CANVAS_HEIGHT; i += 40) {
+                    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(CANVAS_WIDTH, i); ctx.stroke();
+                }
+            }
+            if (p.secondaryWeapon === 'CRYO' && p.secondaryCooldownTimer > p.secondaryCooldownMax - 60) {
+                // Frost Vignette
+                const grad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 200, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 500);
+                grad.addColorStop(0, 'transparent');
+                grad.addColorStop(1, 'rgba(186, 230, 253, 0.4)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            }
+        }
+
+        if (shakeIntensity.current > 0) {
+            const dx = (Math.random() - 0.5) * shakeIntensity.current;
+            const dy = (Math.random() - 0.5) * shakeIntensity.current;
+            ctx.translate(dx, dy);
+        }
+
+        // --- GRID ---
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < CANVAS_WIDTH; i += 50) { ctx.moveTo(i, 0); ctx.lineTo(i, CANVAS_HEIGHT); }
+        for (let i = 0; i < CANVAS_HEIGHT; i += 50) { ctx.moveTo(0, i); ctx.lineTo(CANVAS_WIDTH, i); }
+        ctx.stroke();
+
+        // --- PLAY AREA ---
+        if (p.playAreaScale < 1.0) {
+            const maxX = CANVAS_WIDTH * (0.5 + p.playAreaScale / 2);
+            const minX = CANVAS_WIDTH * (0.5 - p.playAreaScale / 2);
+            const maxY = CANVAS_HEIGHT * (0.5 + p.playAreaScale / 2);
+            const minY = CANVAS_HEIGHT * (0.5 - p.playAreaScale / 2);
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        // --- PLAYER ---
+        if (p.invincibilityTimer % 4 < 2 || p.godMode || isInRiftSafeZone) {
+            const px = Math.round(p.pos.x);
+            const py = Math.round(p.pos.y);
+            ctx.fillStyle = p.slowTimer > 0 ? '#a855f7' : (p.isDashing ? '#fff' : p.color);
+
+            if (p.isCharging) {
+                ctx.fillStyle = `rgba(244, 114, 182, ${p.chargeTimer / 60})`;
+                ctx.beginPath(); ctx.arc(px, py, p.size * 3, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = p.color;
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(px, py - p.size * 1.5);
+            ctx.lineTo(px - p.size, py + p.size);
+            ctx.lineTo(px + p.size, py + p.size);
+            ctx.fill();
+
+            if (p.slowTimer > 0) {
+                ctx.strokeStyle = '#a855f7';
+                ctx.beginPath(); ctx.arc(px, py, p.size * 2, 0, Math.PI * 2 * (p.slowTimer / 120)); ctx.stroke();
+            }
+            if (p.shieldDuration > 0) {
+                const isLvl3 = p.secondaryWeaponLevel >= 3;
+                ctx.strokeStyle = isLvl3 ? '#60a5fa' : '#818cf8';
+                ctx.lineWidth = p.secondaryWeaponLevel >= 2 ? 5 : 3;
+
+                const radius = p.size + (p.secondaryWeaponLevel >= 1 ? 25 : 15);
+                if (isLvl3) {
+                    // Hexagonal Aegis
+                    ctx.beginPath();
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (Math.PI / 3) * i + frameCount.current * 0.02;
+                        const hx = px + Math.cos(angle) * radius;
+                        const hy = py + Math.sin(angle) * radius;
+                        if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.fillStyle = 'rgba(96, 165, 250, 0.1)';
+                    ctx.fill();
+                } else {
+                    ctx.beginPath(); ctx.arc(px, py, radius, Math.PI, 0); ctx.stroke();
+                }
+            }
+        }
+
+        // --- BOSS ---
+        const b = boss.current;
+
+        // --- BEAMS (Special Render) ---
+        if (p.beamDuration > 0) {
+            const width = p.secondaryWeaponLevel >= 3 ? CANVAS_WIDTH : 10;
+            let xPos = p.secondaryWeaponLevel >= 3 ? 0 : p.pos.x - 5;
+            if (p.isSoulMode && b) {
+                xPos = b.pos.x - width / 2;
+            }
+            const alpha = p.beamDuration / 60 + 0.2;
+            ctx.fillStyle = `rgba(167, 139, 250, ${alpha})`;
+            ctx.fillRect(xPos, 0, width, CANVAS_HEIGHT);
+
+            if (p.secondaryWeaponLevel >= 3) {
+                // Solar Beam Core
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha + 0.3})`;
+                ctx.fillRect(xPos + width * 0.4, 0, width * 0.2, CANVAS_HEIGHT);
+
+                // Lightning Arcs
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    let curY = 0;
+                    let curX = xPos + Math.random() * width;
+                    ctx.moveTo(curX, curY);
+                    while (curY < CANVAS_HEIGHT) {
+                        curY += 20;
+                        curX += (Math.random() - 0.5) * 40;
+                        ctx.lineTo(curX, curY);
+                    }
+                    ctx.stroke();
+                }
+            }
+        }
+
+        if (b) {
+            const bx = Math.round(b.pos.x);
+            const by = Math.round(b.pos.y);
+            ctx.fillStyle = (b.slowTimer > 0 || b.freezeTimer > 0) ? '#bae6fd' : b.color;
+
+            if (b.type === BossType.SKELETON_PRIME) {
+                ctx.beginPath(); ctx.arc(bx, by, b.size, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#000'; ctx.fillRect(bx - 15, by - 5, 10, 10); ctx.fillRect(bx + 5, by - 5, 10, 10);
+            } else if (b.type === BossType.KING_PENGUIN) {
+                ctx.beginPath(); ctx.arc(bx, by, b.size, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(bx, by + 10, b.size * 0.7, 0, Math.PI * 2); ctx.fill();
+            } else if (b.type === BossType.GAMBLE_BOT) {
+                ctx.fillRect(bx - b.size, by - b.size, b.size * 2, b.size * 2);
+                if (b.type === BossType.GAMBLE_BOT) {
+                    const wheelY = by - b.size - 30;
+                    if (b.rouletteState === 'SPINNING') {
+                        ctx.save(); ctx.translate(bx, wheelY); ctx.rotate(frameCount.current * 0.5);
+                        ['#22c55e', '#ef4444', '#eab308', '#64748b'].forEach((col, i) => {
+                            ctx.beginPath(); ctx.fillStyle = col; ctx.moveTo(0, 0); ctx.arc(0, 0, 20, (Math.PI / 2) * i, (Math.PI / 2) * (i + 1)); ctx.fill();
+                        });
+                        ctx.restore();
+                    } else if (b.rouletteTimer !== undefined && b.rouletteTimer > 0) {
+                        const timeLeft = 600 - b.rouletteTimer; const width = (timeLeft / 600) * 60;
+                        ctx.fillStyle = '#333'; ctx.fillRect(bx - 30, wheelY + 5, 60, 4);
+                        ctx.fillStyle = '#fff'; ctx.fillRect(bx - 30, wheelY + 5, width, 4);
+                    }
+                }
+            } else if (b.type === BossType.AZATHOTH) {
+                // Tentacles
+                b.tentacles?.forEach(t => {
+                    ctx.strokeStyle = '#4c1d95'; ctx.lineWidth = 8;
+                    ctx.beginPath();
+                    const startX = bx + Math.cos(t.angle) * 40; const startY = by + Math.sin(t.angle) * 40;
+                    ctx.moveTo(startX, startY);
+                    ctx.quadraticCurveTo(
+                        startX + Math.cos(t.angle) * t.length * 0.5 + Math.sin(frameCount.current * 0.1) * 20,
+                        startY + Math.sin(t.angle) * t.length * 0.5 + Math.cos(frameCount.current * 0.1) * 20,
+                        startX + Math.cos(t.angle) * t.length,
+                        startY + Math.sin(t.angle) * t.length
+                    );
+                    ctx.stroke();
+                });
+                ctx.fillStyle = '#1e1b4b'; ctx.beginPath(); ctx.arc(bx, by, b.size, 0, Math.PI * 2); ctx.fill();
+                // Eyes
+                for (let i = 0; i < 5; i++) {
+                    const ex = bx + Math.cos(frameCount.current * 0.02 + i * 1.2) * 40;
+                    const ey = by + Math.sin(frameCount.current * 0.03 + i * 1.2) * 40;
+                    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, 15, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(ex + Math.sin(frameCount.current * 0.1) * 5, ey, 5, 0, Math.PI * 2); ctx.fill();
+                }
+            } else {
+                for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(bx + (Math.random() - 0.5) * 20, by + (Math.random() - 0.5) * 20, b.size * 0.8, 0, Math.PI * 2); ctx.fill(); }
+            }
+
+            if (b.freezeTimer > 0) { ctx.strokeStyle = '#bae6fd'; ctx.lineWidth = 4; ctx.strokeRect(bx - b.size - 10, by - b.size - 10, b.size * 2 + 20, b.size * 2 + 20); }
+        }
+
+        // --- BATCH RENDER BULLETS (OPTIMIZATION) ---
+        const bulletGroups: Record<string, Bullet[]> = {};
+        const specialBullets: Bullet[] = [];
+
+        bullets.current.forEach(bul => {
+            if (bul.isSafeZone || (bul.isBeam && bul.damage > 50) || bul.effect === 'GRAVITY' || bul.isBone || bul.isBlaster) {
+                specialBullets.push(bul);
+            } else {
+                if (!bulletGroups[bul.color]) bulletGroups[bul.color] = [];
+                bulletGroups[bul.color].push(bul);
+            }
+        });
+
+        specialBullets.forEach(bul => {
+            if (bul.isSafeZone) {
+                ctx.strokeStyle = bul.color; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(bul.pos.x, bul.pos.y, bul.size, 0, Math.PI * 2); ctx.stroke();
+                ctx.fillStyle = `rgba(34, 197, 94, 0.2)`; ctx.fill();
+                ctx.beginPath(); ctx.arc(bul.pos.x, bul.pos.y, bul.size * (bul.safeZoneTimer! / 120), 0, Math.PI * 2); ctx.stroke();
+            } else if (bul.isBone) {
+                // Draw Bone
+                const bw = bul.boneWidth || 10;
+                const bh = bul.boneHeight || 10;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(bul.pos.x - bw / 2, bul.pos.y - bh / 2, bw, bh);
+                // Bone ends
+                ctx.beginPath(); ctx.arc(bul.pos.x - bw / 2, bul.pos.y - bh / 2, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(bul.pos.x + bw / 2, bul.pos.y - bh / 2, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(bul.pos.x - bw / 2, bul.pos.y + bh / 2, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(bul.pos.x + bw / 2, bul.pos.y + bh / 2, 5, 0, Math.PI * 2); ctx.fill();
+            } else if (bul.effect === 'GRAVITY') {
+                const isLvl3 = player.current.secondaryWeaponLevel >= 3;
+                ctx.beginPath(); ctx.fillStyle = '#000'; ctx.arc(bul.pos.x, bul.pos.y, bul.size, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#4c1d95'; ctx.lineWidth = 2; ctx.stroke();
+
+                if (isLvl3) {
+                    // Accretion Disk
+                    ctx.strokeStyle = 'rgba(139, 92, 246, 0.6)';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.ellipse(bul.pos.x, bul.pos.y, bul.size * 2, bul.size * 0.8, frameCount.current * 0.1, 0, Math.PI * 2);
+                    ctx.stroke();
+                    if (frameCount.current % 2 === 0) spawnParticles(bul.pos, '#8b5cf6', 1, 3);
+                }
+            } else if (bul.isBeam) {
+                const isLvl3 = player.current.secondaryWeaponLevel >= 3;
+                if (isLvl3) {
+                    // Omega Cannon Blast
+                    const colors = ['#f472b6', '#fff', '#db2777'];
+                    colors.forEach((c, idx) => {
+                        ctx.beginPath(); ctx.moveTo(bul.pos.x + (idx - 1) * 10, 0); ctx.lineTo(bul.pos.x + (idx - 1) * 10, CANVAS_HEIGHT);
+                        ctx.strokeStyle = c; ctx.lineWidth = bul.size * (1 - idx * 0.2); ctx.stroke();
+                    });
+                } else {
+                    ctx.beginPath(); ctx.moveTo(bul.pos.x, 0); ctx.lineTo(bul.pos.x, CANVAS_HEIGHT);
+                    ctx.strokeStyle = '#f472b6'; ctx.lineWidth = bul.size; ctx.stroke();
+                }
+            } else if (bul.isBlaster) {
+                const bLeft = CH2_BOX.cx + ch2BoxOffsetX.current - ch2BoxW.current / 2;
+                const bRight = CH2_BOX.cx + ch2BoxOffsetX.current + ch2BoxW.current / 2;
+                const bTop = CH2_BOX.cy - ch2BoxH.current / 2;
+                const bBot = CH2_BOX.cy + ch2BoxH.current / 2;
+
+                if (bul.blasterPhase === 'WARN') {
+                    ctx.strokeStyle = 'rgba(239,68,68,0.5)'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
+                } else {
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 25; ctx.setLineDash([]);
+                    ctx.shadowBlur = 15; ctx.shadowColor = '#06b6d4';
+                }
+                ctx.beginPath();
+                const isH = Math.abs(bul.pos.x - (CH2_BOX.cx + ch2BoxOffsetX.current)) > ch2BoxW.current / 2;
+                if (isH) { ctx.moveTo(bLeft, bul.pos.y); ctx.lineTo(bRight, bul.pos.y); }
+                else { ctx.moveTo(bul.pos.x, bTop); ctx.lineTo(bul.pos.x, bBot); }
+                ctx.stroke();
+                ctx.setLineDash([]); ctx.shadowBlur = 0;
+            }
+        });
+
+        for (const [color, group] of Object.entries(bulletGroups)) {
+            const isMissileGroup = group.some(b => b.isMissile);
+            const isLvl3Missile = isMissileGroup && player.current.secondaryWeaponLevel >= 3;
+
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            for (let i = 0; i < group.length; i++) {
+                const bul = group[i];
+                const bx = Math.round(bul.pos.x);
+                const by = Math.round(bul.pos.y);
+
+                if (bul.isMissile && player.current.secondaryWeaponLevel >= 3) {
+                    // Epic Missile Trail
+                    spawnParticles(bul.pos, '#fff', 1, 2);
+                    spawnParticles(bul.pos, '#facc15', 1, 1);
+                }
+
+                if (color === '#ffffff') {
+                    ctx.rect(bx - bul.size, by - bul.size, bul.size * 2, bul.size * 2);
+                } else if (color === '#ef4444' && bul.vel.x > 10) {
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx - bul.vel.x * 2, by - bul.vel.y * 2);
+                } else {
+                    ctx.moveTo(bx + bul.size, by);
+                    ctx.arc(bx, by, bul.size, 0, Math.PI * 2);
+                }
+            }
+            ctx.fill();
+            if (color === '#ef4444') {
+                ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3; ctx.stroke();
+            }
+        }
+
+        // --- PARTICLES ---
+        particles.current.forEach(part => {
+            ctx.fillStyle = part.color; ctx.globalAlpha = part.life;
+            ctx.beginPath(); ctx.arc(Math.round(part.pos.x), Math.round(part.pos.y), part.size, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1.0;
+        });
+
+        // ═══ CHAPTER 2 RENDER ═══
+        if (currentBossIndex.current >= 5 && p.isSoulMode) {
+            const bw = ch2BoxW.current;
+            const bh = ch2BoxH.current;
+            const bx = CH2_BOX.cx + ch2BoxOffsetX.current;
+            const by = CH2_BOX.cy;
+
+            // Glitch offset
+            const gx = ch2GlitchIntensity.current > 0 ? (Math.random() - 0.5) * ch2GlitchIntensity.current : 0;
+            const gy = ch2GlitchIntensity.current > 0 ? (Math.random() - 0.5) * ch2GlitchIntensity.current * 0.5 : 0;
+
+            // Background for box
+            ctx.fillStyle = 'rgba(0,0,0,0.85)';
+            ctx.fillRect(bx - bw / 2 + gx, by - bh / 2 + gy, bw, bh);
+
+            // White border (Undertale style)
+            ctx.strokeStyle = ch2GlitchIntensity.current > 10 ? `hsl(${Math.random() * 360},100%,70%)` : '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(bx - bw / 2 + gx, by - bh / 2 + gy, bw, bh);
+
+            // Draw Secret Rift if active and Boss 1
+            if (secretRiftActive.current && boss.current?.type === BossType.CH2_GUARDIAN) {
+                ctx.save();
+                const riftRad = 15 + Math.sin(frameCount.current * 0.1) * 3;
+
+                // Outer glow
+                const grad = ctx.createRadialGradient(bx, by, riftRad * 0.5, bx, by, riftRad * 2);
+                grad.addColorStop(0, 'rgba(168, 85, 247, 0.8)'); // Purple glow
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(bx, by, riftRad * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Inner black hole
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(bx, by, riftRad, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Swirling particles
+                ctx.strokeStyle = '#a855f7';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 3; i++) {
+                    const ang = frameCount.current * 0.05 + (i * Math.PI * 2 / 3);
+                    const dist = riftRad + 5 + Math.cos(frameCount.current * 0.1 + i) * 5;
+                    ctx.beginPath();
+                    ctx.arc(bx + Math.cos(ang) * dist, by + Math.sin(ang) * dist, 2, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // Draw Ch2 Boss
+            const cb = boss.current;
+            if (cb) {
+                const cbx = Math.round(CANVAS_WIDTH / 2);
+                const cby = 110;
+                ctx.save();
+                if (cb.type === BossType.CH2_GUARDIAN) {
+                    // Skull-like guardian
+                    ctx.fillStyle = cb.color; ctx.beginPath(); ctx.arc(cbx, cby, 45, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#0f172a';
+                    ctx.beginPath(); ctx.ellipse(cbx - 15, cby - 5, 10, 12, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.ellipse(cbx + 15, cby - 5, 10, 12, 0, 0, Math.PI * 2); ctx.fill();
+                    // Teeth
+                    for (let i = 0; i < 5; i++) { ctx.fillStyle = '#0f172a'; ctx.fillRect(cbx - 20 + i * 10, cby + 20, 6, 12); }
+                } else if (cb.type === BossType.CH2_ALCHEMIST) {
+                    // Robed alchemist
+                    ctx.fillStyle = cb.color; ctx.beginPath(); ctx.arc(cbx, cby - 15, 22, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#7c3aed'; ctx.beginPath(); ctx.moveTo(cbx - 30, cby + 10); ctx.lineTo(cbx + 30, cby + 10); ctx.lineTo(cbx + 20, cby + 60); ctx.lineTo(cbx - 20, cby + 60); ctx.closePath(); ctx.fill();
+                    // Magic aura
+                    const sc = ch2SoulColor.current;
+                    ctx.strokeStyle = sc === 'GREEN' ? '#22c55e' : (sc === 'BLUE' ? '#3b82f6' : '#f472b6');
+                    ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cbx, cby, 60 + Math.sin(frameCount.current * 0.1) * 8, 0, Math.PI * 2); ctx.stroke();
+                } else if (cb.type === BossType.CH2_DIRECTOR) {
+                    // Conductor silhouette
+                    ctx.fillStyle = '#1e293b'; ctx.fillRect(cbx - 25, cby - 35, 50, 70);
+                    ctx.beginPath(); ctx.arc(cbx, cby - 45, 20, 0, Math.PI * 2); ctx.fill();
+                    // Baton
+                    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.moveTo(cbx + 25, cby - 20); ctx.lineTo(cbx + 60 + Math.sin(frameCount.current * 0.2) * 10, cby + 10 + Math.cos(frameCount.current * 0.2) * 10); ctx.stroke();
+                    // Musical notes floating
+                    ctx.fillStyle = '#64748b'; ctx.font = '20px serif';
+                    ctx.fillText('♪', cbx - 50 + Math.sin(frameCount.current * 0.05) * 10, cby - 20 + Math.cos(frameCount.current * 0.07) * 10);
+                    ctx.fillText('♫', cbx + 40 + Math.sin(frameCount.current * 0.08 + 1) * 10, cby + Math.cos(frameCount.current * 0.06) * 10);
+                } else if (cb.type === BossType.CH2_ENTITY) {
+                    // Flowey-like entity
+                    const petals = 6;
+                    for (let i = 0; i < petals; i++) {
+                        const ang = (Math.PI * 2 / petals) * i + frameCount.current * 0.02;
+                        ctx.fillStyle = cb.phase >= 3 ? `hsl(${(frameCount.current * 3 + i * 60) % 360},100%,60%)` : '#ec4899';
+                        ctx.beginPath(); ctx.ellipse(cbx + Math.cos(ang) * 40, cby + Math.sin(ang) * 40, 18, 10, ang, 0, Math.PI * 2); ctx.fill();
+                    }
+                    ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(cbx, cby, 22, 0, Math.PI * 2); ctx.fill();
+                    // Eyes
+                    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(cbx - 7, cby - 3, 5, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(cbx + 7, cby - 3, 5, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(cbx, cby + 8, 10, 0, Math.PI); ctx.fill(); // Mouth
+                } else if (cb.type === BossType.CH2_SKELETON_KING) {
+                    // Skeleton King
+                    ctx.fillStyle = cb.color; ctx.beginPath(); ctx.arc(cbx, cby, 35, 0, Math.PI * 2); ctx.fill();
+                    // Crown
+                    ctx.fillStyle = '#facc15';
+                    ctx.beginPath(); ctx.moveTo(cbx - 30, cby - 32); ctx.lineTo(cbx - 30, cby - 55); ctx.lineTo(cbx - 15, cby - 45); ctx.lineTo(cbx, cby - 60); ctx.lineTo(cbx + 15, cby - 45); ctx.lineTo(cbx + 30, cby - 55); ctx.lineTo(cbx + 30, cby - 32); ctx.closePath(); ctx.fill();
+                    // Eyes (eye sockets)
+                    ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.ellipse(cbx - 12, cby - 5, 9, 11, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.ellipse(cbx + 12, cby - 5, 9, 11, 0, 0, Math.PI * 2); ctx.fill();
+                    // KR glow
+                    if (p.krDamageAccumalator > 0) {
+                        ctx.strokeStyle = `rgba(239,68,68,${Math.min(0.8, p.krDamageAccumalator / 50)})`;
+                        ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(cbx, cby, 50 + Math.sin(frameCount.current * 0.15) * 5, 0, Math.PI * 2); ctx.stroke();
+                    }
+                }
+                ctx.restore();
+
+                // Boss HP bar (Ch2 style - white/yellow like Undertale)
+                const barW = 300; const barH = 20;
+                const barX = CANVAS_WIDTH / 2 - barW / 2;
+                const barY = cby + 65;
+                ctx.fillStyle = '#000'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+                ctx.fillStyle = '#facc15'; ctx.fillRect(barX, barY, barW * (cb.hp / cb.maxHp), barH);
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(barX, barY, barW, barH);
+            }
+
+            // Soul (heart shape)
+            if (p.invincibilityTimer % 4 < 2 || p.invincibilityTimer === 0 || p.godMode || isInRiftSafeZone) {
+                const sc = ch2SoulColor.current;
+                const soulColor = sc === 'GREEN' ? '#22c55e' : (sc === 'BLUE' ? '#3b82f6' : '#ef4444');
+                const sx = Math.round(p.pos.x); const sy = Math.round(p.pos.y);
+                ctx.fillStyle = soulColor;
+                ctx.beginPath();
+                const hs = 6;
+                ctx.moveTo(sx, sy + hs);
+                ctx.bezierCurveTo(sx - hs * 1.8, sy + hs * 0.3, sx - hs * 1.8, sy - hs * 0.8, sx, sy - hs * 0.2);
+                ctx.bezierCurveTo(sx + hs * 1.8, sy - hs * 0.8, sx + hs * 1.8, sy + hs * 0.3, sx, sy + hs);
+                ctx.fill();
+
+                if (sc === 'GREEN' && p.shieldDirection) {
+                    ctx.strokeStyle = '#4ade80';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    const shieldDist = 18;
+                    const sd = p.shieldDirection;
+                    if (sd === 'UP') { ctx.moveTo(sx - 15, sy - shieldDist); ctx.lineTo(sx + 15, sy - shieldDist); }
+                    else if (sd === 'DOWN') { ctx.moveTo(sx - 15, sy + shieldDist); ctx.lineTo(sx + 15, sy + shieldDist); }
+                    else if (sd === 'LEFT') { ctx.moveTo(sx - shieldDist, sy - 15); ctx.lineTo(sx - shieldDist, sy + 15); }
+                    else if (sd === 'RIGHT') { ctx.moveTo(sx + shieldDist, sy - 15); ctx.lineTo(sx + shieldDist, sy + 15); }
+                    ctx.stroke();
+                }
+            }
+
+            // FIGHT button indicator
+            if (ch2IsFightAvailable.current) {
+                const flash = Math.floor(ch2FightWindowTimer.current / 5) % 2 === 0;
+                ctx.fillStyle = flash ? '#facc15' : '#fbbf24';
+                ctx.font = 'bold 22px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('[ LUCHAR ] (Z)', CANVAS_WIDTH / 2, by + bh / 2 + 30);
+                ctx.textAlign = 'left';
+            }
+
+            // Bone color indicator (Guardian phase 3)
+            if (boss.current?.type === BossType.CH2_GUARDIAN && boss.current.phase === 3) {
+                const isBlue = Math.floor(ch2ColorPhaseTimer.current / 120) % 2 === 0;
+                ctx.fillStyle = isBlue ? '#3b82f6' : '#f97316';
+                ctx.font = 'bold 16px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(isBlue ? '🔵 QUIETO - NO TE MUEVAS' : '🟠 NARANJA - ¡MUÉVETE!', CANVAS_WIDTH / 2, by - bh / 2 - 12);
+                ctx.textAlign = 'left';
+            }
+
+            if (ch2GlitchIntensity.current > 0) ch2GlitchIntensity.current *= 0.9;
+
+            // --- INDICADOR DE LA BRECHA (VISIBLE) ---
+            if (currentBossIndex.current === 5 && isAdminAuthenticated.current) {
+                ctx.fillStyle = frameCount.current % 60 < 30 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(239, 68, 68, 0.3)';
+                ctx.fillRect(421, 384, 3, 3); // Punto rojo visible
+
+                // Confirmación clara
+                if (Math.abs(player.current.pos.x - 422) < 2 && Math.abs(player.current.pos.y - 385) < 2) {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText("BRECHA ACTIVA", 435, 388);
+                }
+            }
+        }
+
+        ctx.restore();
+    };
+
+    const getUpgradeIcon = (id: string, size: number = 16) => {
+        if (id.includes('w_')) return <Target size={size} className="text-purple-400" />;
+        if (id.includes('hp')) return <Heart size={size} className="text-red-400" />;
+        if (id.includes('spd') || id.includes('dash')) return <Zap size={size} className="text-yellow-400" />;
+        if (id.includes('dmg') || id.includes('fire') || id.includes('bullet')) return <Crosshair size={size} className="text-blue-400" />;
+        if (id.includes('sec_')) return <Cpu size={size} className="text-purple-400" />;
+        if (id.includes('upg_')) return <ArrowUpCircle size={size} className="text-yellow-400 animate-pulse" />;
+        return <Shield size={size} className="text-blue-400" />;
+    };
+
+    useEffect(() => {
+        let animationFrameId: number;
+
+        const render = () => {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    update(); // Update Logic
+                    draw(ctx); // Render
+                }
+            }
+            animationFrameId = window.requestAnimationFrame(render);
+        };
+        render();
+
+        return () => {
+            window.cancelAnimationFrame(animationFrameId);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return (
+        <div className="relative w-full h-screen flex items-center justify-center bg-zinc-950" onContextMenu={(e) => e.preventDefault()}>
+            <div className="scanline"></div>
+
+            <canvas
+                ref={canvasRef}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                className="border-2 border-slate-700 rounded-sm shadow-2xl bg-black max-w-full max-h-full cursor-crosshair"
+                style={{
+                    width: 'min(100vw, 800px)', height: 'min(100vh, 600px)',
+                    filter: hudGlitch.current > 10 ? `hue-rotate(${Math.random() * 360}deg) contrast(1.5)` : 'none'
+                }}
+            />
+
+            <div
+                className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4"
+                style={{
+                    width: 'min(100vw, 800px)', height: 'min(100vh, 600px)', margin: 'auto',
+                    transform: hudGlitch.current > 5 ? `translate(${Math.random() * 10}px, ${Math.random() * 10}px)` : 'none'
+                }}
+            >
+
+                {uiState === GameState.PLAYING && (
+                    <>
+                        <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
+                            <div className="flex items-center gap-2 bg-red-950/80 border border-red-800 p-2 rounded shadow-lg backdrop-blur-sm mb-2">
+                                <AlertTriangle size={16} className="text-red-500 animate-pulse" />
+                                <div className="flex flex-col items-end leading-none">
+                                    <span className="text-[10px] text-red-300 font-bold uppercase tracking-wider">System Reboots</span>
+                                    <span className="text-lg font-bold text-red-100">{deathsUntilReset} / 10 REMAINING</span>
+                                </div>
+                            </div>
+
+                            {collectedUpgrades.map((item, idx) => (
+                                <div key={idx} className="flex items-center gap-3 bg-slate-950/80 border border-slate-800 p-2 rounded shadow-lg backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] flex-row-reverse text-right">
+                                    <div className="bg-slate-900 p-1 rounded border border-slate-700">
+                                        {getUpgradeIcon(item.upgrade.id, 14)}
+                                    </div>
+                                    <div className="flex flex-col leading-none items-end">
+                                        <span className="text-xs text-slate-300 font-bold tracking-wide uppercase">{item.upgrade.name}</span>
+                                        <span className="text-[10px] text-slate-500">{item.upgrade.rarity}</span>
+                                    </div>
+                                    <div className="mr-2 flex items-center justify-center bg-yellow-500/20 text-yellow-400 text-xs font-bold px-1.5 py-0.5 rounded border border-yellow-500/30">
+                                        x{item.count}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="w-full flex flex-col items-center gap-2 mt-2 pointer-events-none">
+                            <div className="flex flex-col items-center">
+                                <h2 className="text-red-500 font-bold text-xl tracking-[0.2em] animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]">
+                                    {bossName}
+                                </h2>
+                                {bossModifiers.length > 0 && (
+                                    <div className="flex flex-col items-center gap-1 mt-1">
+                                        <div className="text-[10px] text-red-400 font-bold tracking-widest border-b border-red-900/50 mb-1">THREAT MODIFIERS</div>
+                                        {bossModifiers.map((mod, i) => (
+                                            <div key={i} className="text-xs text-yellow-300 font-mono bg-red-950/40 px-2 py-0.5 rounded border border-red-900/50">
+                                                {mod}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="w-3/4 h-6 bg-slate-900 border-2 border-red-900 skew-x-[-20deg] overflow-hidden relative">
+                                <div
+                                    className="h-full bg-red-600 transition-all duration-200"
+                                    style={{ width: `${(bossHp.current / bossHp.max) * 100}%` }}
+                                ></div>
+                            </div>
+                        </div>
+
+                        <div className="w-full flex justify-between items-end">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-blue-400 font-bold tracking-widest text-lg">SYSTEM INTEGRITY</span>
+                                <div className="w-64 h-4 bg-slate-900 border border-blue-900 rounded">
+                                    <div
+                                        className="h-full bg-blue-500 transition-all duration-100"
+                                        style={{ width: `${(playerHp.current / playerHp.max) * 100}%` }}
+                                    ></div>
+                                </div>
+                                <div className="text-blue-300 text-sm">
+                                    {Math.floor(playerHp.current)} / {Math.floor(playerHp.max)}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1">
+                                <span className="text-purple-400 font-bold tracking-widest text-lg uppercase">
+                                    {player.current.secondaryWeapon !== 'NONE' ? player.current.secondaryWeapon : 'NO MODULE'}
+                                </span>
+                                {player.current.secondaryWeapon !== 'NONE' && (
+                                    <div className="flex flex-col items-end">
+                                        <div className="w-48 h-4 bg-slate-900 border border-purple-900 rounded relative overflow-hidden">
+                                            <div
+                                                className="h-full bg-purple-900 transition-all duration-75 absolute right-0 top-0 bottom-0"
+                                                style={{
+                                                    width: `${(player.current.secondaryCooldownTimer / player.current.secondaryCooldownMax) * 100}%`,
+                                                    opacity: 0.5
+                                                }}
+                                            ></div>
+                                            <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-widest">
+                                                {player.current.secondaryCooldownTimer > 0
+                                                    ? 'RECHARGING...'
+                                                    : 'READY [R-CLICK]'}
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] text-purple-300 mt-1">
+                                            LEVEL {player.current.secondaryWeaponLevel} {player.current.secondaryWeaponLevel === 3 ? '(MAX)' : ''}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {player.current.invertedControls && (
+                                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-1 rounded font-bold animate-pulse">
+                                    WARNING: CONTROLS INVERTED
+                                </div>
+                            )}
+
+                            <div className="text-xs text-slate-500 font-mono absolute bottom-4 left-1/2 -translate-x-1/2">
+                                WASD Move | SPACE Dash | L-CLICK Fire | R-CLICK Ability
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {uiState === GameState.MENU && (
+                    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-sm z-50">
+                        <h1 className="text-6xl font-black text-white tracking-tighter mb-2" style={{ textShadow: '4px 4px 0px #ef4444' }}>
+                            BOSS RUSH
+                        </h1>
+                        <h2 className="text-2xl text-cyan-400 tracking-[0.5em] mb-12">ASCENSION</h2>
+                        <button
+                            onClick={() => startGame(false)}
+                            className="group relative px-8 py-4 bg-transparent border-2 border-white text-white font-bold text-xl uppercase tracking-widest hover:bg-white hover:text-black transition-all"
+                        >
+                            Initialize Combat
+                            <div className="absolute inset-0 bg-white/20 scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
+                        </button>
+
+                        {phase2Unlocked && (
+                            <button
+                                onClick={() => startGame(true)}
+                                className="group relative px-8 py-4 mt-4 bg-transparent border-2 border-purple-500 text-purple-400 font-bold text-xl uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all"
+                            >
+                                <Ghost size={24} className="inline mr-2" />
+                                CHAPTER 2 START
+                                <div className="absolute inset-0 bg-purple-500/20 scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
+                            </button>
+                        )}
+
+                        <div className="mt-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                            <div className="flex items-center gap-2"><Rocket size={16} /> Movement: WASD / Arrows</div>
+                            <div className="flex items-center gap-2"><Zap size={16} /> Dash: Space (Invincible)</div>
+                            <div className="flex items-center gap-2"><Skull size={16} /> Shoot: Click / J</div>
+                            <div className="flex items-center gap-2"><Target size={16} /> Ability: R-Click / K</div>
+                        </div>
+
+                        <button
+                            onClick={() => setShowPasswordModal(true)}
+                            className="absolute bottom-4 right-4 text-slate-600 hover:text-white transition-colors"
+                        >
+                            <Lock size={16} />
+                        </button>
+
+                        {showPasswordModal && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50">
+                                <div className="bg-slate-900 border border-slate-700 p-8 rounded shadow-2xl flex flex-col gap-4 w-96">
+                                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                        <Lock size={20} className="text-cyan-400" /> Security Clearance
+                                    </h3>
+                                    <input
+                                        type="password"
+                                        value={passwordInput}
+                                        onChange={(e) => setPasswordInput(e.target.value)}
+                                        placeholder="Enter Access Code"
+                                        className="bg-black border border-slate-600 p-3 text-white focus:outline-none focus:border-cyan-500 font-mono tracking-widest"
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
+                                        autoFocus
+                                    />
+                                    {loginError && <span className="text-red-500 text-xs">ACCESS DENIED</span>}
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => { setShowPasswordModal(false); setLoginError(false); setPasswordInput(''); }} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+                                        <button onClick={handleAdminLogin} className="px-4 py-2 bg-cyan-900 text-cyan-100 hover:bg-cyan-700">Login</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {uiState === GameState.ADMIN && (
+                    <div className="absolute inset-0 bg-slate-950/98 flex flex-col p-8 pointer-events-auto overflow-y-auto">
+                        <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
+                            <h1 className="text-4xl font-black text-cyan-400 tracking-widest flex items-center gap-4">
+                                <Database size={32} /> ADMIN CONSOLE
+                            </h1>
+                            <button
+                                onClick={() => { setUiState(GameState.MENU); }}
+                                className="text-slate-500 hover:text-white"
+                            >
+                                Log Out
+                            </button>
+                        </div>
+
+                        <div className="flex gap-8 h-full">
+                            <div className="flex-1 overflow-y-auto">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-slate-400 font-bold uppercase tracking-widest">Inject Upgrades</h2>
+                                    <div className="flex items-center gap-2 bg-slate-900 p-1 rounded border border-slate-700">
+                                        <span className="text-[10px] text-slate-500 font-bold px-2 uppercase">Weapon Level:</span>
+                                        {[0, 1, 2, 3].map(lvl => (
+                                            <button
+                                                key={lvl}
+                                                onClick={() => {
+                                                    setAdminWeaponLevel(lvl);
+                                                    if (player.current.secondaryWeapon !== 'NONE') {
+                                                        player.current.secondaryWeaponLevel = lvl;
+                                                        // Update the existing virtual upgrade in collectedUpgrades so it persists on restart
+                                                        setCollectedUpgrades(prev => {
+                                                            return prev.map(item => {
+                                                                if (item.upgrade.type === 'SECONDARY_WEAPON') {
+                                                                    const wType = item.upgrade.weaponType;
+                                                                    return {
+                                                                        ...item,
+                                                                        upgrade: {
+                                                                            ...item.upgrade,
+                                                                            id: `admin_w_${wType}_lvl${lvl}`,
+                                                                            apply: (pl: Player) => {
+                                                                                pl.secondaryWeapon = wType as SecondaryWeaponType;
+                                                                                pl.secondaryWeaponLevel = lvl;
+                                                                                pl.secondaryCooldownMax = SECONDARY_WEAPON_STATS[wType as SecondaryWeaponType].cooldown;
+                                                                            }
+                                                                        }
+                                                                    };
+                                                                }
+                                                                return item;
+                                                            });
+                                                        });
+                                                    }
+                                                }}
+                                                className={`px-3 py-1 text-xs font-bold rounded transition-colors ${adminWeaponLevel === lvl ? 'bg-cyan-600 text-white shadow-[0_0_10px_rgba(8,145,178,0.5)]' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                            >
+                                                L{lvl}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {UPGRADE_POOL.map((upg) => (
+                                        <div key={upg.id} className="bg-slate-900 border border-slate-800 p-4 rounded flex justify-between items-center group hover:border-cyan-500 transition-colors">
+                                            <div className="flex items-center gap-4">
+                                                <div className="p-2 bg-black rounded border border-slate-700">
+                                                    {getUpgradeIcon(upg.id, 20)}
+                                                </div>
+                                                <div>
+                                                    <div className="text-white font-bold">{upg.name}</div>
+                                                    <div className="text-xs text-slate-500">{upg.rarity}</div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => adminAddUpgrade(upg)}
+                                                className="p-2 bg-slate-800 hover:bg-cyan-600 text-white rounded transition-colors"
+                                            >
+                                                <Plus size={20} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="w-80 border-l border-slate-800 pl-8 flex flex-col">
+                                <h2 className="text-slate-400 font-bold mb-4 uppercase tracking-widest">Current Loadout</h2>
+                                <div className="flex-1 bg-black/50 rounded border border-slate-800 p-4 mb-4 overflow-y-auto">
+                                    {collectedUpgrades.length === 0 && (
+                                        <div className="text-slate-600 text-center mt-10">No modifications active.</div>
+                                    )}
+                                    {collectedUpgrades.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-sm border-b border-slate-800/50 py-2 last:border-0">
+                                            <span className="text-slate-300">{item.upgrade.name}</span>
+                                            <span className="text-cyan-400 font-mono font-bold">x{item.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        onClick={() => setGodModeEnabled(!godModeEnabled)}
+                                        className={`w-full py-3 font-bold uppercase tracking-widest flex items-center justify-center gap-2 border-2 transition-colors ${godModeEnabled ? 'bg-red-600 border-red-500 text-white' : 'bg-transparent border-red-900 text-red-500 hover:bg-red-900/30'}`}
+                                    >
+                                        <Heart size={20} /> {godModeEnabled ? "VIDA INFINITA: ACTIVA" : "VIDA INFINITA: INACTIVA"}
+                                    </button>
+                                    <button
+                                        onClick={() => startGame(true)}
+                                        className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 mt-4"
+                                    >
+                                        <Ghost size={20} /> Capítulo 2
+                                    </button>
+                                    <button
+                                        onClick={() => startGame(false)}
+                                        className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2"
+                                    >
+                                        <Unlock size={20} /> Launch Game
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {uiState === GameState.GAME_OVER && (
+                    <div className="absolute inset-0 bg-red-950/90 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-md z-50">
+                        <h1 className="text-6xl font-black text-red-500 tracking-widest mb-4">CRITICAL FAILURE</h1>
+                        <p className="text-white text-xl mb-8">System destroyed by {bossName}</p>
+                        <div className="mb-8 p-4 bg-black/40 rounded border border-red-800 text-center">
+                            <p className="text-red-300 text-sm mb-1">EMERGENCY BACKUP POWER</p>
+                            <p className="text-2xl font-bold text-white">{deathsUntilReset} / 10 Reboots Remaining</p>
+                            <p className="text-slate-400 text-xs mt-2">Upgrades will persist until power depletion.</p>
+                        </div>
+                        <button
+                            onClick={() => startGame(player.current.isSoulMode)}
+                            className="px-8 py-3 bg-red-600 text-white font-bold rounded shadow-lg hover:bg-red-500 transition-colors flex items-center gap-2"
+                        >
+                            <RefreshCw size={20} /> Reboot System
+                        </button>
+                    </div>
+                )}
+
+                {uiState === GameState.VICTORY && (
+                    <div className="absolute inset-0 bg-blue-950/90 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-md z-50">
+                        <h1 className="text-6xl font-black text-yellow-400 tracking-widest mb-4">ASCENSION COMPLETE</h1>
+                        <p className="text-white text-xl mb-8">All targets neutralized.</p>
+                        <button
+                            onClick={() => startGame(player.current.isSoulMode)}
+                            className="px-8 py-3 bg-yellow-500 text-black font-bold rounded shadow-lg hover:bg-yellow-400 transition-colors"
+                        >
+                            Play Again (New Game+)
+                        </button>
+                    </div>
+                )}
+
+                {uiState === GameState.UPGRADING && (
+                    <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-md z-50">
+                        <h2 className="text-3xl text-cyan-400 font-bold mb-2">TARGET ELIMINATED</h2>
+                        <p className="text-slate-300 mb-8">Select System Upgrade</p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl px-8">
+                            {availableUpgrades.map((upg, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => selectUpgrade(upg)}
+                                    className={`
+                                    relative p-6 border-2 rounded-lg text-left transition-all hover:-translate-y-2 hover:shadow-xl group
+                                    ${upg.rarity === 'COMMON' ? 'border-slate-500 bg-slate-800' :
+                                            upg.rarity === 'RARE' ? 'border-blue-500 bg-blue-950' :
+                                                upg.rarity === 'MYTHIC' ? 'border-purple-500 bg-purple-950' :
+                                                    'border-yellow-500 bg-yellow-950'}
+                                    ${upg.type === 'SECONDARY_WEAPON' && !upg.isWeaponUpgrade ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-black' : ''}
+                                    ${upg.isWeaponUpgrade ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-black' : ''}
+                                `}
+                                >
+                                    <div className="absolute -top-3 -right-3">
+                                        {upg.rarity === 'MYTHIC' && <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded shadow-[0_0_10px_#a855f7]">MYTHIC</span>}
+                                        {upg.rarity === 'LEGENDARY' && <span className="px-2 py-1 bg-yellow-500 text-black text-xs font-bold rounded">LEGENDARY</span>}
+                                        {upg.rarity === 'RARE' && <span className="px-2 py-1 bg-blue-500 text-white text-xs font-bold rounded">RARE</span>}
+                                    </div>
+                                    <div className="mb-4">
+                                        {getUpgradeIcon(upg.id, 24)}
+                                    </div>
+                                    <h3 className="text-xl font-bold text-white mb-2 group-hover:text-cyan-300">{upg.name}</h3>
+                                    <p className="text-slate-400 text-sm leading-relaxed">{upg.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
