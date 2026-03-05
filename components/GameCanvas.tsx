@@ -1855,7 +1855,7 @@ export const GameCanvas: React.FC = () => {
                     if (hit && inSafeSpot && (isAdminAuthenticated.current || secretRiftActive.current)) hit = false;
 
                     if (hit && (p.invincibilityTimer <= 0 || boss.current?.forceNoIframes)) {
-                        p.hp -= b.damage;
+                        p.hp -= b.damage * Math.pow(3, newGamePlusCount.current);
                         p.invincibilityTimer = 60;
                         if (boss.current?.type === BossType.CH2_SKELETON_KING) {
                             p.krDamageAccumalator += 10;
@@ -1918,7 +1918,7 @@ export const GameCanvas: React.FC = () => {
                     spawnParticles(b.pos, '#22c55e', 5, 2);
                     if (!b.piercing) { bullets.current.splice(i, 1); continue; }
                 } else if (hit && canHit && !blockedByShield) {
-                    p.hp -= b.damage; shakeIntensity.current = 10;
+                    p.hp -= b.damage * Math.pow(3, newGamePlusCount.current); shakeIntensity.current = 10;
                     spawnParticles(p.pos, '#ef4444', 8, 4);
                     if (!boss.current?.forceNoIframes) p.invincibilityTimer = 60;
                     // KR: Skeleton King hits accumulate poison
