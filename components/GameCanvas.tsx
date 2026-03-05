@@ -97,6 +97,7 @@ export const GameCanvas: React.FC = () => {
     const shakeIntensity = useRef(0);
     const currentBossIndex = useRef(0);
     const hudGlitch = useRef(0);
+    const newGamePlusCount = useRef(0); // Tracks New Game+ cycles
 
     // Chapter 2 State
     const ch2SoulColor = useRef<SoulColor>('RED');
@@ -191,13 +192,17 @@ export const GameCanvas: React.FC = () => {
         // Scaling Logic
         const encounters = bossCounters.current[config.name] || 0;
         const hpMultiplier = 1 + (Math.floor(encounters / 2) * 0.10);
-        const scaledHp = Math.floor(config.hp * hpMultiplier);
+        const ngpMultiplier = Math.pow(3, newGamePlusCount.current); // x3 per NG+ cycle
+        const scaledHp = Math.floor(config.hp * hpMultiplier * ngpMultiplier);
 
         bossCounters.current[config.name] = encounters + 1;
 
         const activeMods = [];
         if (hpMultiplier > 1) {
             activeMods.push(`VETERAN SCALE: HP +${Math.round((hpMultiplier - 1) * 100)}%`);
+        }
+        if (newGamePlusCount.current > 0) {
+            activeMods.push(`NEW GAME+${newGamePlusCount.current}: HP/DMG x${ngpMultiplier}`);
         }
         setBossModifiers(activeMods);
 
@@ -221,7 +226,7 @@ export const GameCanvas: React.FC = () => {
             description: "A formidable foe.",
             slowTimer: 0,
             freezeTimer: 0,
-            modifiers: { damage: 1, fireRate: 1, moveSpeed: 1 },
+            modifiers: { damage: Math.pow(3, newGamePlusCount.current), fireRate: 1, moveSpeed: 1 }, // NG+ damage multiplier
             tentacles: configIndex === 4 ? Array(8).fill(0).map((_, i) => ({ angle: (Math.PI * 2 / 8) * i, length: 0, phase: i })) : undefined,
             realityGlitch: 0
         };
@@ -245,6 +250,7 @@ export const GameCanvas: React.FC = () => {
             }
         } else if (gameState.current === GameState.VICTORY) {
             nextDeaths = 10;
+            newGamePlusCount.current += 1; // Increment NG+ counter on new game after victory
         } else if (gameState.current === GameState.ADMIN) {
             nextDeaths = 10;
             bossCounters.current = {};
