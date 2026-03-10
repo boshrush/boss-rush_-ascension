@@ -138,7 +138,7 @@ export const GameCanvas: React.FC = () => {
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordInput, setPasswordInput] = useState('');
     const [loginError, setLoginError] = useState(false);
-    const [phase2Unlocked, setPhase2Unlocked] = useState(false);
+    const [phase2Unlocked, setPhase2Unlocked] = useState(() => localStorage.getItem('boss_rush_phase2_unlocked') === 'true');
     const [adminWeaponLevel, setAdminWeaponLevel] = useState(0);
     const [godModeEnabled, setGodModeEnabled] = useState(false);
     const [chapter3Unlocked, setChapter3Unlocked] = useState(() => localStorage.getItem('boss_rush_chapter3_unlocked') === 'true');
@@ -3782,8 +3782,25 @@ export const GameCanvas: React.FC = () => {
                                         <Heart size={20} /> {godModeEnabled ? "VIDA INFINITA: ACTIVA" : "VIDA INFINITA: INACTIVA"}
                                     </button>
                                     <button
+                                        onClick={() => {
+                                            setPhase2Unlocked(true);
+                                            setChapter3Unlocked(true);
+                                            localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+                                            localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+                                        }}
+                                        className="w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-green-900/20 flex items-center justify-center gap-2 mt-2"
+                                    >
+                                        <Unlock size={20} /> UNLOCK ALL CHAPTERS
+                                    </button>
+                                    <button
+                                        onClick={() => startGame(3)}
+                                        className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-orange-900/20 flex items-center justify-center gap-2"
+                                    >
+                                        <Target size={20} /> Capítulo 3
+                                    </button>
+                                    <button
                                         onClick={() => startGame(2)}
-                                        className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 mt-4"
+                                        className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2"
                                     >
                                         <Ghost size={20} /> Capítulo 2
                                     </button>
@@ -3791,7 +3808,7 @@ export const GameCanvas: React.FC = () => {
                                         onClick={() => startGame(1)}
                                         className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2"
                                     >
-                                        <Unlock size={20} /> Launch Game
+                                        <Rocket size={20} /> Launch Game
                                     </button>
                                 </div>
                             </div>
