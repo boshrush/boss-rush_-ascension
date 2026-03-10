@@ -1864,7 +1864,7 @@ export const GameCanvas: React.FC = () => {
     };
 
     const handleAdminLogin = () => {
-        if (passwordInput === 'OS-ADMIN') {
+        if (passwordInput === 'nintendo64') {
             isAdminAuthenticated.current = true;
             setUiState(GameState.ADMIN);
             setPasswordInput('');
