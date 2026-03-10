@@ -2171,6 +2171,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         if (p.invincibilityTimer > 0) p.invincibilityTimer--;
+        if (p.shootCooldown > 0) p.shootCooldown--;
 
         // Shooting Logic
         if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ') || keys.current.has('KeyZ')) && p.shootCooldown <= 0 && !p.isCharging) {
