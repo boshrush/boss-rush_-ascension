@@ -4,7 +4,16 @@ export enum GameState {
   UPGRADING,
   GAME_OVER,
   VICTORY,
-  ADMIN
+  ADMIN,
+  CHAPTER_SELECT,
+  CH3_SHOP,
+  CH3_INVENTORY
+}
+
+export enum Chapter {
+  CHAPTER1 = 1,
+  CHAPTER2 = 2,
+  CHAPTER3 = 3
 }
 
 export enum BossType {
@@ -18,7 +27,13 @@ export enum BossType {
   CH2_ALCHEMIST = 6,
   CH2_DIRECTOR = 7,
   CH2_ENTITY = 8,
-  CH2_SKELETON_KING = 9
+  CH2_SKELETON_KING = 9,
+  // Chapter 3 Bosses
+  CH3_MORTIMER = 10,
+  CH3_VERMILLION = 11,
+  CH3_VERDOLAGA = 12,
+  CH3_CARAMELA = 13,
+  CH3_SCRATCH = 14
 }
 
 export type SoulColor = 'RED' | 'BLUE' | 'GREEN';
@@ -81,6 +96,14 @@ export interface Player extends Entity {
   isCharging: boolean;
   godMode?: boolean;
   shieldDirection?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+
+  // Chapter 3 Specific
+  ch3Grounded?: boolean;
+  ch3Jumping?: boolean;
+  ch3Crouching?: boolean;
+  ch3Coins?: number;
+  ch3WeaponIdsOwned?: number[];
+  ch3Loadout?: number[]; // indices into CH3_WEAPONS (max 3)
 }
 
 export interface Boss extends Entity {
@@ -166,4 +189,20 @@ export interface Upgrade {
   apply: (player: Player) => void;
   isWeaponUpgrade?: boolean;
   targetLevel?: number;
+}
+
+export interface CH3Weapon {
+  id: number;
+  name: string;
+  price: number;
+  description: string;
+  effect: string;
+  type: string;
+}
+
+export interface CH3Checkpoint {
+  lastBossDefeated: number;
+  coins: number;
+  weaponsOwned: number[];
+  loadout: number[];
 }

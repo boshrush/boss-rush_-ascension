@@ -1,4 +1,4 @@
-import { Upgrade, SecondaryWeaponType, BossType } from './types';
+import { Upgrade, SecondaryWeaponType, BossType, CH3Weapon } from './types';
 
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
@@ -104,6 +104,49 @@ export const BOSS_CONFIGS = [
     hp: 3000,
     color: '#f1f5f9',
     size: 50,
+  },
+];
+
+export const CH3_BOSS_CONFIGS = [
+  {
+    name: "MORTIMER EL PAYASO",
+    hp: 2000,
+    color: '#f97316',
+    size: 60,
+    reward: 80,
+    description: "🎪 Circus on Fire"
+  },
+  {
+    name: "LA BARONESA VERMILLION",
+    hp: 3500,
+    color: '#8b5cf6',
+    size: 55,
+    reward: 120,
+    description: "🃏 Floating Casino"
+  },
+  {
+    name: "DR. VERDOLAGA",
+    hp: 4500,
+    color: '#22c55e',
+    size: 70,
+    reward: 160,
+    description: "🌿 Enchanted Garden"
+  },
+  {
+    name: "CARAMELA LA HECHICERA",
+    hp: 6000,
+    color: '#f472b6',
+    size: 50,
+    reward: 200,
+    description: "🍭 Candy Factory"
+  },
+  {
+    name: "EL GRAN DIABLO SCRATCH",
+    hp: 12000,
+    color: '#ef4444',
+    size: 80,
+    reward: 400,
+    description: "😈 Cartoon Hell"
   },
 ];
 
@@ -293,4 +336,35 @@ export const UPGRADE_POOL: Upgrade[] = [
     weaponType: 'OVERCHARGE',
     apply: (p) => { p.secondaryWeapon = 'OVERCHARGE'; p.secondaryCooldownMax = SECONDARY_WEAPON_STATS.OVERCHARGE.cooldown; }
   }
+];
+
+export const CH3_PHYSICS = {
+  gravity: 0.4,
+  jumpPower: 10,
+  groundY: 520,
+  moveSpeed: 4.5,
+  terminalVelocity: 12
+};
+
+export const CH3_WEAPONS: CH3Weapon[] = [
+  { id: 1, name: "Cañón Básico", price: 0, description: "Disparo recto estándar", effect: "NORMAL", type: "PROJECTILE" },
+  { id: 2, name: "Doble Disparo", price: 50, description: "Dos balas paralelas", effect: "DOUBLE", type: "PROJECTILE" },
+  { id: 3, name: "Láser Continuo", price: 80, description: "Rayo constante horizontal", effect: "BEAM", type: "CONTINUOUS" },
+  { id: 4, name: "Bomba de Jazz", price: 100, description: "Explosión en área al impactar", effect: "EXPLOSIVE", type: "PROJECTILE" },
+  { id: 5, name: "Bumerán Cartoon", price: 120, description: "Proyectil que regresa al jugador", effect: "BOOMERANG", type: "PROJECTILE" },
+  { id: 6, name: "Esporas Tóxicas", price: 130, description: "Nube de veneno que daña over time", effect: "POISON", type: "AREA" },
+  { id: 7, name: "Rayo Arcoiris", price: 150, description: "Rebota en paredes hasta 3 veces", effect: "BOUNCE", type: "PROJECTILE" },
+  { id: 8, name: "Confeti Explosivo", price: 160, description: "Dispersión aleatoria de 6 proyectiles", effect: "SPREAD", type: "PROJECTILE" },
+  { id: 9, name: "Tridente de Fuego", price: 170, description: "3 balas en abanico ígneas", effect: "TRIPLE", type: "PROJECTILE" },
+  { id: 10, name: "Hielo Cartoon", price: 180, description: "Ralentiza al boss 2 segundos", effect: "FREEZE", type: "PROJECTILE" },
+  { id: 11, name: "Carta Maldita", price: 200, description: "Proyectil que sigue al boss lentamente", effect: "HOMING", type: "PROJECTILE" },
+  { id: 12, name: "Caramelo Adherente", price: 210, description: "Pega al boss y daña over time", effect: "STICKY", type: "PROJECTILE" },
+  { id: 13, name: "Acordeón Sónico", price: 220, description: "Onda expansiva vertical + horizontal", effect: "WAVE", type: "AREA" },
+  { id: 14, name: "Tuba Infernal", price: 250, description: "Proyectil gigante lento, daño enorme", effect: "HEAVY", type: "PROJECTILE" },
+  { id: 15, name: "Guante de Boxeo", price: 260, description: "Daño masivo en rango cercano", effect: "MELEE", type: "CLOSE_RANGE" },
+  { id: 16, name: "Trueno Celestial", price: 280, description: "Rayos que caen desde arriba en 3 posiciones", effect: "THUNDER", type: "STRIKE" },
+  { id: 17, name: "Fantasmas Jaula", price: 300, description: "3 fantasmas que orbitan y atacan solos", effect: "ORBITAL", type: "ENTITY" },
+  { id: 18, name: "Espejo Mágico", price: 320, description: "Clon que dispara en dirección opuesta", effect: "MIRROR", type: "ENTITY" },
+  { id: 19, name: "Reloj del Tiempo", price: 380, description: "Ralentiza todo 2 segundos (cooldown 30s)", effect: "TIME_STOP", type: "SPECIAL" },
+  { id: 20, name: "Alma del Diablo", price: 500, description: "Atraviesa todo, daño masivo. 1 sola carga por vida", effect: "ULTIMATE", type: "SPECIAL" }
 ];

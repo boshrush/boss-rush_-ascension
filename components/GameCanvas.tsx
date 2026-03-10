@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { GameState, BossType, Player, Boss, Bullet, Particle, Vector2, Upgrade, SecondaryWeaponType, SoulColor } from '../types';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX } from '../constants';
+import { GameState, BossType, Player, Boss, Bullet, Particle, Vector2, Upgrade, SecondaryWeaponType, SoulColor, Chapter } from '../types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX, CH3_BOSS_CONFIGS, CH3_WEAPONS, CH3_PHYSICS } from '../constants';
 import { Rocket, Skull, Shield, Zap, Heart, RefreshCw, Crosshair, AlertTriangle, Lock, Unlock, Plus, Database, Target, Cpu, ArrowUpCircle, Ghost } from 'lucide-react';
 
 const useInput = () => {
@@ -81,13 +81,21 @@ export const GameCanvas: React.FC = () => {
         isCharging: false,
 
         // Phase 2 Init
-        isSoulMode: false,
-        gravityDir: { x: 0, y: 1 },
-        isGrounded: false,
         jumpPower: SOUL_PHYSICS.jumpPower,
         krTimer: 0,
-        krDamageAccumalator: 0
+        krDamageAccumalator: 0,
+
+        // Chapter 3 Specific
+        ch3Grounded: true,
+        ch3Jumping: false,
+        ch3Crouching: false
     });
+
+    const currentChapter = useRef<number>(1); // 1, 2, or 3
+    const ch3Coins = useRef<number>(0);
+    const ch3WeaponsOwned = useRef<number[]>([1]); // Weapon IDs from CH3_WEAPONS
+    const ch3Loadout = useRef<number[]>([1, -1, -1]); // Indices/IDs of equipped weapons
+    const ch3LastBossDefeated = useRef<number>(0);
 
     const boss = useRef<Boss | null>(null);
     const bossCounters = useRef<Record<string, number>>({});
@@ -97,7 +105,8 @@ export const GameCanvas: React.FC = () => {
     const shakeIntensity = useRef(0);
     const currentBossIndex = useRef(0);
     const hudGlitch = useRef(0);
-    const newGamePlusCount = useRef(0); // Tracks New Game+ cycles
+    const newGamePlusCount = useRef(0);
+    const selectedCh3Slot = useRef(0); // 0 or 1
 
     // Chapter 2 State
     const ch2SoulColor = useRef<SoulColor>('RED');
@@ -108,6 +117,14 @@ export const GameCanvas: React.FC = () => {
     const ch2FightWindowTimer = useRef(0);
     const ch2IsFightAvailable = useRef(false);
     const ch2GlitchIntensity = useRef(0);
+
+    // Chapter 3 UI State
+    const [ch3CoinsUI, setCh3CoinsUI] = useState(0);
+    const [ch3OwnedUI, setCh3OwnedUI] = useState<number[]>([1]);
+    const [ch3LoadoutUI, setCh3LoadoutUI] = useState<number[]>([1, -1, -1]);
+    const [unlockedChapters, setUnlockedChapters] = useState<number[]>([1]); // [1, 2, 3]
+    const [selectedChapter, setSelectedChapter] = useState(1);
+    const [startBossIndex, setStartBossIndex] = useState(0);
 
     // UI State
     const [uiState, setUiState] = useState<GameState>(GameState.MENU);
@@ -124,6 +141,7 @@ export const GameCanvas: React.FC = () => {
     const [phase2Unlocked, setPhase2Unlocked] = useState(false);
     const [adminWeaponLevel, setAdminWeaponLevel] = useState(0);
     const [godModeEnabled, setGodModeEnabled] = useState(false);
+    const [chapter3Unlocked, setChapter3Unlocked] = useState(() => localStorage.getItem('boss_rush_chapter3_unlocked') === 'true');
     const isAdminAuthenticated = useRef(false);
     const secretRiftActive = useRef(false);
     const secretSequence = useRef<string[]>([]);
@@ -153,8 +171,33 @@ export const GameCanvas: React.FC = () => {
 
     useEffect(() => {
         // Check persistence
-        const unlocked = localStorage.getItem('boss_rush_phase2_unlocked') === 'true';
-        if (unlocked) setPhase2Unlocked(true);
+        const ph2Unlocked = localStorage.getItem('boss_rush_phase2_unlocked') === 'true';
+        if (ph2Unlocked) setUnlockedChapters(prev => prev.includes(2) ? prev : [...prev, 2]);
+
+        const ch3CoinsStore = localStorage.getItem('chapter3_coins');
+        if (ch3CoinsStore) {
+            ch3Coins.current = parseInt(ch3CoinsStore);
+            setCh3CoinsUI(ch3Coins.current);
+        }
+
+        const ch3OwnedStore = localStorage.getItem('chapter3_weapons_owned');
+        if (ch3OwnedStore) {
+            ch3WeaponsOwned.current = JSON.parse(ch3OwnedStore);
+            setCh3OwnedUI(ch3WeaponsOwned.current);
+        }
+
+        const ch3LoadoutStore = localStorage.getItem('chapter3_loadout');
+        if (ch3LoadoutStore) {
+            ch3Loadout.current = JSON.parse(ch3LoadoutStore);
+            setCh3LoadoutUI(ch3Loadout.current);
+        }
+
+        const ch3CheckpointStore = localStorage.getItem('chapter3_checkpoint');
+        if (ch3CheckpointStore) {
+            const cp = JSON.parse(ch3CheckpointStore);
+            ch3LastBossDefeated.current = cp.lastBossDefeated;
+            setUnlockedChapters(prev => prev.includes(3) ? prev : [...prev, 3]);
+        }
     }, []);
 
     const spawnParticles = (pos: Vector2, color: string, count: number, speed: number) => {
@@ -178,8 +221,16 @@ export const GameCanvas: React.FC = () => {
     };
 
     const initBoss = (index: number) => {
-        const configIndex = index % BOSS_CONFIGS.length;
-        const config = BOSS_CONFIGS[configIndex];
+        let config;
+        let configIndex = index;
+
+        if (currentChapter.current === 3) {
+            configIndex = index % CH3_BOSS_CONFIGS.length;
+            config = CH3_BOSS_CONFIGS[configIndex];
+        } else {
+            configIndex = index % BOSS_CONFIGS.length;
+            config = BOSS_CONFIGS[configIndex];
+        }
 
         if (!config) {
             gameState.current = GameState.VICTORY;
@@ -213,7 +264,7 @@ export const GameCanvas: React.FC = () => {
 
         boss.current = {
             type: configIndex as BossType,
-            pos: { x: CANVAS_WIDTH / 2, y: 100 },
+            pos: { x: currentChapter.current === 3 ? CANVAS_WIDTH * 0.75 : CANVAS_WIDTH / 2, y: currentChapter.current === 3 ? CH3_PHYSICS.groundY - (config.size || 50) : 100 },
             size: config.size,
             color: config.color,
             hp: scaledHp,
@@ -223,16 +274,20 @@ export const GameCanvas: React.FC = () => {
             state: 'IDLE',
             angle: 0,
             name: config.name,
-            description: "A formidable foe.",
+            description: config.description || "A formidable foe.",
+            reward: config.reward || 0,
             slowTimer: 0,
             freezeTimer: 0,
             modifiers: { damage: Math.pow(3, newGamePlusCount.current), fireRate: 1, moveSpeed: 1 }, // NG+ damage multiplier
-            tentacles: configIndex === 4 ? Array(8).fill(0).map((_, i) => ({ angle: (Math.PI * 2 / 8) * i, length: 0, phase: i })) : undefined,
+            tentacles: configIndex === 4 && currentChapter.current === 1 ? Array(8).fill(0).map((_, i) => ({ angle: (Math.PI * 2 / 8) * i, length: 0, phase: i })) : undefined,
             realityGlitch: 0
         };
     };
 
-    const startGame = (startAtPhase2: boolean = false) => {
+    const startGame = (chapter: number = 1, startIdx: number = 0) => {
+        currentChapter.current = chapter;
+        currentBossIndex.current = startIdx;
+
         ch1SecondarySeenCount.current = 0;
         let nextUpgrades = [...collectedUpgrades];
         let nextDeaths = deathsUntilReset;
@@ -254,6 +309,11 @@ export const GameCanvas: React.FC = () => {
         } else if (gameState.current === GameState.ADMIN) {
             nextDeaths = 10;
             bossCounters.current = {};
+        }
+
+        // Reset Chapter 3 stats if starting new run or from menu
+        if (chapter === 3 && (gameState.current === GameState.MENU || gameState.current === GameState.VICTORY)) {
+            // Keep coins and owned weapons, but reset health etc
         }
 
         setCollectedUpgrades(nextUpgrades);
@@ -292,24 +352,29 @@ export const GameCanvas: React.FC = () => {
             godMode: godModeEnabled,
             shieldDirection: 'UP',
 
-            isSoulMode: startAtPhase2,
+            isSoulMode: (chapter === 2 && currentBossIndex.current >= 5), // Chapter 2 boss 5+ is soul mode
             gravityDir: { x: 0, y: 1 },
             isGrounded: false,
             jumpPower: SOUL_PHYSICS.jumpPower,
             krTimer: 0,
             krDamageAccumalator: 0,
-            playAreaScale: startAtPhase2 ? 0.6 : 1.0 // Smaller box for Phase 2
+
+            // Chapter 3 specific resets
+            ch3Grounded: true,
+            ch3Jumping: false,
+            ch3Crouching: false,
+            playAreaScale: 1.0
         };
 
-        if (startAtPhase2) {
+        // Chapter 1 & 2 Specific Setup
+        if (chapter === 2 && currentBossIndex.current >= 5) {
             player.current.pos = { x: CH2_BOX.cx, y: CH2_BOX.cy };
             player.current.speed = SOUL_PHYSICS.soulSpeed;
-            player.current.size = 6; // Smaller hit box (Heart)
-            currentBossIndex.current = 5; // Start at Boss 6 (Index 5)
-            player.current.hp = 100; // Give a bit more HP for CH2
+            player.current.size = 6;
+            player.current.hp = 100;
             player.current.maxHp = 100;
+            player.current.playAreaScale = 0.6;
 
-            // Reset Ch2 refs
             ch2BoxW.current = CH2_BOX.baseW;
             ch2BoxH.current = CH2_BOX.baseH;
             ch2BoxOffsetX.current = 0;
@@ -317,28 +382,130 @@ export const GameCanvas: React.FC = () => {
             ch2ColorPhaseTimer.current = 0;
             ch2GlitchIntensity.current = 0;
             ch2IsFightAvailable.current = false;
-        } else {
-            currentBossIndex.current = 0;
+        } else if (chapter === 3) {
+            player.current.pos = { x: 100, y: CH3_PHYSICS.groundY - 40 };
+            player.current.size = 20; // Cartoon character is larger
+            player.current.speed = CH3_PHYSICS.moveSpeed;
         }
 
         nextUpgrades.forEach(item => {
             for (let i = 0; i < item.count; i++) {
-                item.upgrade.apply(player.current);
+                if (item.upgrade.apply) item.upgrade.apply(player.current);
             }
         });
 
         player.current.hp = player.current.maxHp;
-
         bullets.current = [];
         particles.current = [];
         frameCount.current = 0;
 
         initBoss(currentBossIndex.current);
+
         gameState.current = GameState.PLAYING;
         setUiState(GameState.PLAYING);
     };
 
+    const fireCh3Weapon = () => {
+        const p = player.current;
+        const b = boss.current;
+        const slotIdx = selectedCh3Slot.current;
+        const weaponId = ch3Loadout.current[slotIdx];
+
+        if (weaponId === -1 || p.shootCooldown > 0) return;
+        const weapon = CH3_WEAPONS.find(w => w.id === weaponId);
+        if (!weapon) return;
+
+        const damage = p.damage;
+        const pos = { x: p.pos.x + 25, y: p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15 };
+
+        switch (weapon.effect) {
+            case 'NORMAL':
+                bullets.current.push({ pos, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120 });
+                break;
+            case 'DOUBLE':
+                bullets.current.push({ pos: { x: pos.x, y: pos.y - 10 }, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120 });
+                bullets.current.push({ pos: { x: pos.x, y: pos.y + 10 }, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120 });
+                break;
+            case 'BEAM':
+                p.beamDuration = 60;
+                break;
+            case 'EXPLOSIVE':
+                bullets.current.push({ pos, vel: { x: p.projectileSpeed * 0.8, y: 0 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
+                break;
+            case 'BOOMERANG':
+                bullets.current.push({ pos, vel: { x: 12, y: 0 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, homing: true }); // Returns via homing or simple flip
+                break;
+            case 'POISON':
+                bullets.current.push({ pos, vel: { x: 5, y: 0 }, size: 15, color: '#22c55e', isEnemy: false, damage: damage * 0.2, lifetime: 200, effect: 'GAS' });
+                break;
+            case 'BOUNCE':
+                bullets.current.push({ pos, vel: { x: 10, y: 5 }, size: 8, color: '#60a5fa', isEnemy: false, damage, lifetime: 300, bounces: 0, maxBounces: 5 });
+                break;
+            case 'SPREAD':
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.random() - 0.5) * 0.8;
+                    bullets.current.push({ pos, vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 }, size: 6, color: '#fff', isEnemy: false, damage: damage * 0.5, lifetime: 80 });
+                }
+                break;
+            case 'TRIPLE':
+                for (let i = -1; i <= 1; i++) {
+                    bullets.current.push({ pos, vel: { x: 12, y: i * 3 }, size: 8, color: '#ef4444', isEnemy: false, damage, lifetime: 100 });
+                }
+                break;
+            case 'FREEZE':
+                bullets.current.push({ pos, vel: { x: 15, y: 0 }, size: 12, color: '#bae6fd', isEnemy: false, damage: damage * 0.5, lifetime: 100, effect: 'FREEZE' });
+                break;
+            case 'HOMING':
+                bullets.current.push({ pos, vel: { x: 8, y: 0 }, size: 10, color: '#c084fc', isEnemy: false, damage, lifetime: 200, homing: true });
+                break;
+            case 'STICKY':
+                bullets.current.push({ pos, vel: { x: 10, y: 0 }, size: 8, color: '#f472b6', isEnemy: false, damage: damage * 0.5, lifetime: 300, attachedToBoss: false, isMine: true }); // Using Mine logic for sticky
+                break;
+            case 'WAVE':
+                bullets.current.push({ pos, vel: { x: 8, y: 0 }, size: 100, color: 'rgba(255,255,255,0.2)', isEnemy: false, damage: damage * 1.5, lifetime: 40 });
+                break;
+            case 'HEAVY':
+                bullets.current.push({ pos, vel: { x: 5, y: 0 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150 });
+                shakeIntensity.current = 10;
+                break;
+            case 'MELEE':
+                bullets.current.push({ pos, vel: { x: 2, y: 0 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15 });
+                break;
+            case 'THUNDER':
+                if (b) {
+                    for (let i = 0; i < 3; i++) {
+                        const x = b.pos.x + (i - 1) * 100;
+                        bullets.current.push({ pos: { x, y: 0 }, vel: { x: 0, y: 25 }, size: 30, color: '#facc15', isEnemy: false, damage: damage * 2, lifetime: 30 });
+                    }
+                }
+                break;
+            case 'ORBITAL':
+                for (let i = 0; i < 3; i++) {
+                    bullets.current.push({ pos: { ...p.pos }, vel: { x: i, y: 0 }, size: 15, color: 'rgba(255,255,255,0.3)', isEnemy: false, damage: damage * 0.5, lifetime: 300, isDrone: true, droneSticky: false });
+                }
+                break;
+            case 'MIRROR':
+                bullets.current.push({ pos, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
+                bullets.current.push({ pos: { x: p.pos.x - 25, y: pos.y }, vel: { x: -p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
+                break;
+            case 'TIME_STOP':
+                bullets.current.forEach(bul => { if (bul.isEnemy) bul.vel = { x: bul.vel.x * 0.1, y: bul.vel.y * 0.1 }; });
+                if (b) b.slowTimer = 120;
+                p.secondaryCooldownTimer = 1800; // 30s
+                break;
+            case 'ULTIMATE':
+                bullets.current.push({ pos, vel: { x: 4, y: 0 }, size: 150, color: 'rgba(239, 68, 68, 0.4)', isEnemy: false, damage: damage * 10, lifetime: 300, piercing: true });
+                p.secondaryCooldownTimer = 999999; // 1 use per life
+                break;
+        }
+
+        if (weapon.effect !== 'TIME_STOP' && weapon.effect !== 'ULTIMATE') {
+            p.shootCooldown = PLAYER_BASE_STATS.fireRate * 2;
+        }
+    };
+
     const fireSecondary = () => {
+        // ... (Keep existing for Ch 1 & 2)
         const p = player.current;
         const b = boss.current;
         if (p.secondaryWeapon === 'NONE' || p.secondaryCooldownTimer > 0) return;
@@ -394,7 +561,7 @@ export const GameCanvas: React.FC = () => {
                     const count = lvl >= 3 ? 60 : 30; // Buffed: Increased fire volume
                     const arc = lvl >= 3 ? Math.PI : 0.6; // Slightly wider arc
                     let baseAngle = -Math.PI / 2;
-                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     for (let i = 0; i < count; i++) {
                         const angle = baseAngle + (Math.random() - 0.5) * arc;
                         const speed = 6 + Math.random() * (lvl >= 3 ? 15 : 6); // Faster particles
@@ -425,7 +592,7 @@ export const GameCanvas: React.FC = () => {
             case 'CRYO':
                 {
                     let angle = -Math.PI / 2;
-                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { ...p.pos }, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 12 + (lvl * 2), color: stats.color,
                         isEnemy: false, damage: damage, lifetime: 100, effect: 'FREEZE'
@@ -466,7 +633,7 @@ export const GameCanvas: React.FC = () => {
             case 'CH2_BONE_STRIKE':
                 {
                     let angle = -Math.PI / 2;
-                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     const isLvl3 = lvl >= 3;
                     if (isLvl3) {
                         shakeIntensity.current = 20;
@@ -482,7 +649,7 @@ export const GameCanvas: React.FC = () => {
             case 'CH2_PIXEL_BLAST':
                 {
                     let baseAngle = -Math.PI / 2;
-                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     const pixelCount = lvl >= 2 ? (lvl >= 3 ? 25 : 15) : 8;
                     for (let i = 0; i < pixelCount; i++) {
                         const angle = baseAngle + (Math.random() - 0.5) * (lvl >= 3 ? Math.PI * 1.2 : 0.8);
@@ -500,7 +667,7 @@ export const GameCanvas: React.FC = () => {
             case 'CH2_VOID_NOTES':
                 {
                     let baseAngle = -Math.PI / 2;
-                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) baseAngle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     const noteCount = lvl >= 3 ? 5 : (lvl >= 1 ? 3 : 1);
                     for (let i = 0; i < noteCount; i++) {
                         const angle = baseAngle + (i - (noteCount - 1) / 2) * (lvl >= 3 ? 0.3 : 0.5);
@@ -515,7 +682,7 @@ export const GameCanvas: React.FC = () => {
             case 'CH2_GLITCH_BOMB':
                 {
                     let angle = -Math.PI / 2;
-                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                    if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { ...p.pos }, vel: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 }, size: lvl >= 3 ? 25 : 15, color: lvl >= 3 ? '#ff00ff' : stats.color,
                         isEnemy: false, damage: damage * (lvl >= 1 ? 2 : 1), lifetime: 60, clusterCount: lvl >= 3 ? 20 : 6, effect: 'REALITY_BREAK'
@@ -629,7 +796,7 @@ export const GameCanvas: React.FC = () => {
                 if (lvl >= 2) dmg *= 1.5;
 
                 let angle = -Math.PI / 2;
-                if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - p.pos.x);
+                if (p.isSoulMode && b) angle = Math.atan2(b.pos.y - p.pos.y, b.pos.x - b.pos.x);
 
                 if (lvl >= 3) {
                     bullets.current.push({
@@ -952,6 +1119,251 @@ export const GameCanvas: React.FC = () => {
                         vel: { x: Math.cos(a) * 6, y: Math.sin(a) * 6 },
                         size: 4, color: Math.random() > 0.5 ? '#000' : '#fff', isEnemy: true, damage: 15, lifetime: 200
                     });
+                }
+            }
+        }
+    };
+
+    // ═══════════════════════════════════════════════
+    // CHAPTER 3 BOSS LOGIC
+    // ═══════════════════════════════════════════════
+    const handleCh3BossLogic = () => {
+        const b = boss.current;
+        const p = player.current;
+        if (!b) return;
+
+        b.attackTimer++;
+
+        // Phase Transitions
+        if (b.hp < b.maxHp * 0.3 && b.phase === 2) {
+            b.phase = 3;
+            spawnParticles(b.pos, '#fff', 50, 10);
+            shakeIntensity.current = 20;
+        } else if (b.hp < b.maxHp * 0.6 && b.phase === 1) {
+            b.phase = 2;
+            spawnParticles(b.pos, '#fff', 30, 8);
+            shakeIntensity.current = 15;
+        }
+
+        // --- BOSS 1: MORTIMER EL PAYASO (Clown) ---
+        if (b.type === 0 as BossType) {
+            const freq = b.phase === 3 ? 40 : (b.phase === 2 ? 60 : 80);
+
+            if (b.attackTimer % freq === 0) {
+                const attackType = Math.floor(Math.random() * 3);
+
+                if (attackType === 0) {
+                    // Juggling Balls (Arcing Falling)
+                    for (let i = 0; i < (b.phase * 3) + 2; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x - 50, y: b.pos.y - 100 },
+                            vel: { x: -3 - Math.random() * 8, y: -5 - Math.random() * 10 },
+                            size: 15, color: i % 2 === 0 ? '#ef4444' : '#3b82f6',
+                            isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY'
+                        });
+                    }
+                } else if (attackType === 1) {
+                    // Honk Honk! (Fast Burst)
+                    for (let i = 0; i < 8 + b.phase * 4; i++) {
+                        const angle = Math.PI + (i / 10) - 0.5;
+                        bullets.current.push({
+                            pos: { x: b.pos.x - 30, y: b.pos.y },
+                            vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
+                            size: 10, color: '#facc15',
+                            isEnemy: true, damage: 10, lifetime: 80
+                        });
+                    }
+                } else {
+                    // Bumper Car Charge
+                    b.vel.x = -15 - (b.phase * 5);
+                    b.customState = 'CHARGING';
+                }
+            }
+            if (b.customState === 'CHARGING') {
+                b.pos.x += b.vel.x;
+                if (b.pos.x < 50) {
+                    b.pos.x = 50;
+                    b.vel.x = 8;
+                    b.customState = 'RETURNING';
+                    shakeIntensity.current = 15;
+                }
+            } else if (b.customState === 'RETURNING') {
+                b.pos.x += b.vel.x;
+                if (b.pos.x >= CANVAS_WIDTH * 0.75) {
+                    b.pos.x = CANVAS_WIDTH * 0.75;
+                    b.customState = 'IDLE';
+                }
+            } else {
+                b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.05) * 50;
+            }
+        }
+
+        // --- BOSS 2: LA BARONESA VERMILLION (Vampire) ---
+        else if (b.type === 1 as BossType) {
+            const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
+
+            if (b.attackTimer % freq === 0) {
+                const attackType = Math.floor(Math.random() * 3);
+
+                if (attackType === 0) {
+                    // Bats (Homing Sweep)
+                    for (let i = 0; i < 3 + b.phase; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x, y: b.pos.y + (i - 1) * 50 },
+                            vel: { x: -10, y: 0 },
+                            size: 12, color: '#000', isEnemy: true, damage: 15, lifetime: 120,
+                            effect: 'HOMING_SOFT'
+                        });
+                    }
+                } else if (attackType === 1) {
+                    // Blood Wine (Parabolic Drops)
+                    for (let i = 0; i < 15; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x - Math.random() * 400, y: -20 },
+                            vel: { x: 0, y: 5 + Math.random() * 5 },
+                            size: 8, color: '#991b1b', isEnemy: true, damage: 10, lifetime: 150
+                        });
+                    }
+                } else {
+                    // Vampire Cloak Sweep
+                    bullets.current.push({
+                        pos: { x: b.pos.x, y: p.pos.y },
+                        vel: { x: -20, y: 0 },
+                        size: 80, color: 'rgba(127, 29, 29, 0.5)', isEnemy: true, damage: 25, lifetime: 40
+                    });
+                }
+            }
+            b.pos.y = CANVAS_HEIGHT * 0.4 + Math.cos(frameCount.current * 0.03) * 100;
+        }
+
+        // --- BOSS 3: DR. VERDOLAGA (Botanist) ---
+        else if (b.type === 2 as BossType) {
+            const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
+
+            if (b.attackTimer % freq === 0) {
+                const attackType = Math.floor(Math.random() * 3);
+
+                if (attackType === 0) {
+                    // Seed Spitting (Multi-shot)
+                    for (let i = 0; i < 5 + b.phase * 2; i++) {
+                        setTimeout(() => {
+                            bullets.current.push({
+                                pos: { x: b.pos.x, y: b.pos.y },
+                                vel: { x: -10, y: (Math.random() - 0.5) * 6 },
+                                size: 10, color: '#16a34a', isEnemy: true, damage: 12, lifetime: 120
+                            });
+                        }, i * 100);
+                    }
+                } else if (attackType === 1) {
+                    // Toxic Gas (Large slow clouds)
+                    bullets.current.push({
+                        pos: { x: b.pos.x, y: b.pos.y },
+                        vel: { x: -3, y: 0 },
+                        size: 100, color: 'rgba(34, 197, 94, 0.3)', isEnemy: true, damage: 5, lifetime: 200, effect: 'GAS'
+                    });
+                } else {
+                    // Root Surge from underground
+                    for (let x = 100; x < CANVAS_WIDTH - 200; x += 150) {
+                        bullets.current.push({
+                            pos: { x, y: CH3_PHYSICS.groundY + 50 },
+                            vel: { x: 0, y: -20 },
+                            size: 30, color: '#4d7c0f', isEnemy: true, damage: 25, lifetime: 30
+                        });
+                    }
+                }
+            }
+            b.pos.x = CANVAS_WIDTH * 0.8 + Math.sin(frameCount.current * 0.02) * 100;
+        }
+
+        // --- BOSS 4: CARAMELA LA HECHICERA (Candy Witch) ---
+        else if (b.type === 3 as BossType) {
+            const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
+
+            if (b.attackTimer % freq === 0) {
+                const attackType = Math.floor(Math.random() * 3);
+
+                if (attackType === 0) {
+                    // Candy Rain (Parabolic)
+                    for (let i = 0; i < 10 + b.phase * 5; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x, y: b.pos.y },
+                            vel: { x: -5 - Math.random() * 10, y: -10 - Math.random() * 5 },
+                            size: 10, color: `hsl(${Math.random() * 360}, 70%, 70%)`, isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY'
+                        });
+                    }
+                } else if (attackType === 1) {
+                    // Sticky Bubblegum
+                    bullets.current.push({
+                        pos: { x: b.pos.x, y: b.pos.y },
+                        vel: { x: -12, y: 0 },
+                        size: 40, color: '#f472b6', isEnemy: true, damage: 10, lifetime: 120, effect: 'SLOW_PLAYER'
+                    });
+                } else {
+                    // Sweets Spiral
+                    for (let i = 0; i < 12; i++) {
+                        const angle = (i / 12) * Math.PI * 2;
+                        bullets.current.push({
+                            pos: { x: b.pos.x, y: b.pos.y },
+                            vel: { x: Math.cos(angle) * 6, y: Math.sin(angle) * 6 },
+                            size: 12, color: '#fb7185', isEnemy: true, damage: 20, lifetime: 180, effect: 'SPIRAL'
+                        });
+                    }
+                }
+            }
+            b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.08) * 150;
+        }
+
+        // --- BOSS 5: EL GRAN DIABLO SCRATCH (The Devil) ---
+        else if (b.type === 4 as BossType) {
+            const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
+
+            // Constant hellfire floor in Phase 3
+            if (b.phase === 3 && frameCount.current % 15 === 0) {
+                bullets.current.push({
+                    pos: { x: Math.random() * CANVAS_WIDTH, y: CH3_PHYSICS.groundY - 10 },
+                    vel: { x: (Math.random() - 0.5) * 4, y: -4 - Math.random() * 4 },
+                    size: 20, color: '#ef4444', isEnemy: true, damage: 10, lifetime: 60
+                });
+            }
+
+            if (b.attackTimer % freq === 0) {
+                const attackType = Math.floor(Math.random() * 4);
+
+                if (attackType === 0) {
+                    // Pitchfork Thrust (Beam)
+                    bullets.current.push({
+                        pos: { x: b.pos.x, y: p.pos.y },
+                        vel: { x: -30, y: 0 },
+                        size: 70, color: 'rgba(127, 29, 29, 0.8)', isEnemy: true, damage: 40, lifetime: 30, effect: 'BEAM'
+                    });
+                } else if (attackType === 1) {
+                    // Cursed Rain
+                    for (let x = 0; x < CANVAS_WIDTH; x += 120 - b.phase * 20) {
+                        bullets.current.push({
+                            pos: { x, y: -20 },
+                            vel: { x: 0, y: 10 },
+                            size: 15, color: '#450a0a', isEnemy: true, damage: 20, lifetime: 120
+                        });
+                    }
+                } else if (attackType === 2) {
+                    // Demon Skulls (Homing)
+                    for (let i = 0; i < 3 + b.phase; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x, y: b.pos.y + (i - 1) * 80 },
+                            vel: { x: -8, y: 0 },
+                            size: 25, color: '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT'
+                        });
+                    }
+                } else {
+                    // Pentagram Explosion
+                    for (let i = 0; i < 16; i++) {
+                        const angle = (i / 16) * Math.PI * 2;
+                        bullets.current.push({
+                            pos: { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 },
+                            vel: { x: Math.cos(angle) * 7, y: Math.sin(angle) * 7 },
+                            size: 15, color: '#ef4444', isEnemy: true, damage: 15, lifetime: 120, effect: 'SPIRAL'
+                        });
+                    }
                 }
             }
         }
@@ -1452,13 +1864,20 @@ export const GameCanvas: React.FC = () => {
     };
 
     const handleAdminLogin = () => {
-        if (passwordInput === 'nintendo64') {
-            setUiState(GameState.ADMIN);
-            gameState.current = GameState.ADMIN;
-            setShowPasswordModal(false);
-            setLoginError(false);
-            setPasswordInput('');
+        if (passwordInput === 'OS-ADMIN') {
             isAdminAuthenticated.current = true;
+            setUiState(GameState.ADMIN);
+            setPasswordInput('');
+            setLoginError(false);
+            setShowPasswordModal(false);
+        } else if (passwordInput.toUpperCase() === 'CARTOON') {
+            // Unlock Chapter 3 secret code
+            setChapter3Unlocked(true);
+            localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+            setPasswordInput('');
+            setLoginError(false);
+            setShowPasswordModal(false);
+            setUiState(GameState.CHAPTER_SELECT);
         } else {
             setLoginError(true);
         }
@@ -1611,6 +2030,60 @@ export const GameCanvas: React.FC = () => {
         }
     };
 
+    const updateCh3Physics = () => {
+        const p = player.current;
+        const physics = CH3_PHYSICS;
+
+        // Reset horizontal velocity
+        p.vel.x = 0;
+
+        // Controls
+        if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) p.vel.x = -physics.moveSpeed;
+        if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) p.vel.x = physics.moveSpeed;
+
+        // Crouch (S or Down)
+        const wantsToCrouch = (keys.current.has('KeyS') || keys.current.has('ArrowDown'));
+        p.ch3Crouching = wantsToCrouch && p.ch3Grounded;
+
+        if (p.ch3Crouching) {
+            p.vel.x *= 0.2; // Move much slower while crouching
+            p.size = 12; // Lower hit box height (visually handled in draw)
+        } else {
+            p.size = 20; // Normal hit box
+        }
+
+        // Jump (W, Space, or Up)
+        const wantsToJump = (keys.current.has('KeyW') || keys.current.has('ArrowUp') || keys.current.has('Space'));
+        if (wantsToJump && p.ch3Grounded && !p.ch3Crouching && !p.ch3Jumping) {
+            p.vel.y = -physics.jumpPower;
+            p.ch3Grounded = false;
+            p.ch3Jumping = true;
+            spawnParticles(p.pos, '#fef3c7', 5, 2);
+        }
+
+        // Apply Gravity
+        if (!p.ch3Grounded) {
+            p.vel.y += physics.gravity;
+            if (p.vel.y > physics.terminalVelocity) p.vel.y = physics.terminalVelocity;
+        }
+
+        // Apply Velocity
+        p.pos.x += p.vel.x;
+        p.pos.y += p.vel.y;
+
+        // Ground Collision
+        const floorY = physics.groundY;
+        if (p.pos.y >= floorY - p.size) {
+            p.pos.y = floorY - p.size;
+            p.vel.y = 0;
+            p.ch3Grounded = true;
+            p.ch3Jumping = false;
+        }
+
+        // Wall Collision
+        p.pos.x = Math.max(p.size, Math.min(CANVAS_WIDTH - p.size, p.pos.x));
+    };
+
     const update = () => {
         if (gameState.current !== GameState.PLAYING) return;
         frameCount.current++;
@@ -1624,6 +2097,8 @@ export const GameCanvas: React.FC = () => {
 
         if (p.isSoulMode) {
             updateSoulPhysics();
+        } else if (currentChapter.current === 3) {
+            updateCh3Physics();
         } else {
             // Standard Ship Physics
             let dx = 0;
@@ -1697,22 +2172,45 @@ export const GameCanvas: React.FC = () => {
 
         if (p.invincibilityTimer > 0) p.invincibilityTimer--;
 
-        if (p.shootCooldown > 0) p.shootCooldown--;
-        // Only shoot if NOT in Soul Mode
-        if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ')) && p.shootCooldown <= 0 && !p.isCharging) {
-            bullets.current.push({
-                pos: { x: p.pos.x, y: p.pos.y - 10 }, vel: { x: 0, y: -p.projectileSpeed },
-                size: p.projectileSize, color: COLORS.playerBullet, isEnemy: false, damage: p.damage, lifetime: 100
-            });
+        // Shooting Logic
+        if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ') || keys.current.has('KeyZ')) && p.shootCooldown <= 0 && !p.isCharging) {
+            if (currentChapter.current === 3) {
+                // Horizontal shooting for Chapter 3
+                const bulletY = p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15;
+                bullets.current.push({
+                    pos: { x: p.pos.x + 25, y: bulletY }, vel: { x: p.projectileSpeed, y: 0 },
+                    size: p.projectileSize, color: '#facc15', isEnemy: false, damage: p.damage, lifetime: 120,
+                    effect: 'CARTOON_HIT'
+                });
+                spawnParticles({ x: p.pos.x + 25, y: bulletY }, '#fff', 2, 3);
+            } else {
+                // Top-down shooting for Chapters 1 & 2
+                bullets.current.push({
+                    pos: { x: p.pos.x, y: p.pos.y - 10 }, vel: { x: 0, y: -p.projectileSpeed },
+                    size: p.projectileSize, color: COLORS.playerBullet, isEnemy: false, damage: p.damage, lifetime: 100
+                });
+            }
             p.shootCooldown = PLAYER_BASE_STATS.fireRate;
         }
 
-        handleSecondaryLogic();
-        if ((rightMouseDown.current || keys.current.has('KeyK') || keys.current.has('KeyE') || keys.current.has('KeyZ'))) {
-            fireSecondary();
+        if (currentChapter.current === 3 && keys.current.has('KeyQ')) {
+            if (!p.ch3SlotKeyWasDown) {
+                selectedCh3Slot.current = (selectedCh3Slot.current + 1) % 2;
+                p.ch3SlotKeyWasDown = true;
+            }
+        } else {
+            p.ch3SlotKeyWasDown = false;
         }
 
-        handleBossLogic();
+        handleSecondaryLogic();
+        if ((mouseDown.current || keys.current.has('KeyJ') || rightMouseDown.current || keys.current.has('KeyK') || keys.current.has('KeyE') || keys.current.has('KeyZ'))) {
+            if (currentChapter.current === 3) fireCh3Weapon();
+            else fireSecondary();
+        }
+
+        if (currentChapter.current === 1) handleBossLogic();
+        else if (currentChapter.current === 2) handleCh2BossLogic();
+        else if (currentChapter.current === 3) handleCh3BossLogic();
 
         for (let i = bullets.current.length - 1; i >= 0; i--) {
             const b = bullets.current[i];
@@ -1818,9 +2316,42 @@ export const GameCanvas: React.FC = () => {
                 if (speed > 8) { b.vel.x = (b.vel.x / speed) * 8; b.vel.y = (b.vel.y / speed) * 8; }
             }
 
+            if (b.effect === 'HOMING_SOFT' && b.isEnemy) {
+                const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                const turnSpeed = 0.05;
+                const currentAngle = Math.atan2(b.vel.y, b.vel.x);
+                let diff = angle - currentAngle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                const newAngle = currentAngle + diff * turnSpeed;
+                const speed = Math.sqrt(b.vel.x ** 2 + b.vel.y ** 2);
+                b.vel.x = Math.cos(newAngle) * speed;
+                b.vel.y = Math.sin(newAngle) * speed;
+            }
+
+            if (b.effect === 'SPIRAL') {
+                const speed = Math.sqrt(b.vel.x ** 2 + b.vel.y ** 2);
+                const angle = Math.atan2(b.vel.y, b.vel.x) + 0.05;
+                b.vel.x = Math.cos(angle) * speed;
+                b.vel.y = Math.sin(angle) * speed;
+            }
+
+            if (b.effect === 'SLOW_PLAYER' && b.isEnemy) {
+                const dist = Math.sqrt((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2);
+                if (dist < b.size + p.size) { p.slowTimer = 20; }
+            }
+
+            if (b.effect === 'GAS') {
+                b.size += 0.5;
+                const dist = Math.sqrt((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2);
+                if (dist < b.size && frameCount.current % 10 === 0) {
+                    if (p.invincibilityTimer <= 0) p.hp -= b.damage;
+                }
+            }
+
             // Apply Gravity Effect (Physics)
             if (b.isEnemy && b.effect === 'GRAVITY') {
-                b.vel.y += 0.1;
+                b.vel.y += 0.15;
             }
 
             b.pos.x += b.vel.x; b.pos.y += b.vel.y;
@@ -1996,21 +2527,60 @@ export const GameCanvas: React.FC = () => {
             shakeIntensity.current = 30;
             spawnParticles(boss.current.pos, boss.current.color, 100, 15);
 
-            // Unlock Chapter 2 if Azathoth (indexed 4) is defeated
-            if (currentBossIndex.current === 4) {
+            const isCh1Boss5 = currentChapter.current === 1 && currentBossIndex.current === 4;
+            const isCh2Boss5 = currentChapter.current === 2 && currentBossIndex.current === 4;
+            const isCh3 = currentChapter.current === 3;
+
+            // Unlock Chapter 2
+            if (isCh1Boss5) {
                 setPhase2Unlocked(true);
                 localStorage.setItem('boss_rush_phase2_unlocked', 'true');
             }
 
-            const isAzathoth = currentBossIndex.current === 4;
-            const wasCh2 = currentBossIndex.current >= 5 && player.current.isSoulMode;
+            // Unlock Chapter 3
+            if (isCh2Boss5) {
+                setChapter3Unlocked(true);
+                localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+            }
+
+            if (isCh3) {
+                // Award coins from boss reward
+                const reward = boss.current.reward || 100;
+                ch3Coins.current += reward;
+                setCh3CoinsUI(ch3Coins.current);
+                localStorage.setItem('chapter3_coins', ch3Coins.current.toString());
+
+                // Update checkpoint
+                const currentReached = currentBossIndex.current + 1; // 1-indexed for the checkpoint log
+                if (currentReached > ch3LastBossDefeated.current) {
+                    ch3LastBossDefeated.current = currentReached;
+                    localStorage.setItem("chapter3_checkpoint", JSON.stringify({
+                        lastBossDefeated: ch3LastBossDefeated.current,
+                        coins: ch3Coins.current,
+                        weaponsOwned: ch3WeaponsOwned.current,
+                        loadout: ch3Loadout.current
+                    }));
+                }
+
+                // Show "¡SUPERADO!" seal animation trigger would go here
+            }
+
+            const isFinalBoss = currentBossIndex.current === 4;
             boss.current = null;
 
-            if (isAzathoth) {
-                // Transition to Chapter 2 automatically
+            if (isCh1Boss5) {
+                setTimeout(() => { startGame(2); }, 2000);
+            } else if (isCh3) {
                 setTimeout(() => {
-                    startGame(true);
-                }, 2000);
+                    setUiState(GameState.CH3_SHOP);
+                    gameState.current = GameState.CH3_SHOP;
+                }, 1500);
+            } else if (isFinalBoss && currentChapter.current === 2) {
+                // Chapter 2 final victory
+                setTimeout(() => {
+                    setUiState(GameState.VICTORY);
+                    gameState.current = GameState.VICTORY;
+                }, 1500);
             } else {
                 setTimeout(() => { showUpgrades(); }, 1500);
             }
@@ -2060,8 +2630,48 @@ export const GameCanvas: React.FC = () => {
             ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
         }
 
-        ctx.fillStyle = COLORS.background;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // --- CHAPTER 3 BACKGROUND (Watercolor Style) ---
+        if (currentChapter.current === 3) {
+            // Paper texture effect
+            ctx.fillStyle = '#fef3c7'; // Creamy paper color
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Hand-painted hills/curtains (simplified)
+            ctx.fillStyle = 'rgba(127, 29, 29, 0.1)'; // Deep red curtains back
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(200, 100, 400, 0);
+            ctx.quadraticCurveTo(600, 100, 800, 0);
+            ctx.fill();
+
+            const groundY = CH3_PHYSICS.groundY;
+            // Floor (Watercolor Wood)
+            const floorGrad = ctx.createLinearGradient(0, groundY, 0, CANVAS_HEIGHT);
+            floorGrad.addColorStop(0, '#451a03'); // Darker wood
+            floorGrad.addColorStop(1, '#78350f'); // Lighter wood
+            ctx.fillStyle = floorGrad;
+            ctx.fillRect(0, groundY, CANVAS_WIDTH, CANVAS_HEIGHT - groundY);
+
+            // Floor Border (Thick Ink Line)
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(CANVAS_WIDTH, groundY);
+            ctx.stroke();
+
+            // Ground pattern (Hand-drawn dust clouds)
+            ctx.fillStyle = 'rgba(0,0,0,0.05)';
+            for (let i = 0; i < CANVAS_WIDTH; i += 80) {
+                const x = (i + (frameCount.current * 0.5) % 80);
+                ctx.beginPath();
+                ctx.ellipse(x, groundY + 20, 30, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else {
+            ctx.fillStyle = COLORS.background;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
 
         // ═══════════════════════════════════════════════
         // OVERLAY DE EFECTOS ESPECIALES (Fases Finales)
@@ -2205,11 +2815,99 @@ export const GameCanvas: React.FC = () => {
                 ctx.fillStyle = p.color;
             }
 
-            ctx.beginPath();
-            ctx.moveTo(px, py - p.size * 1.5);
-            ctx.lineTo(px - p.size, py + p.size);
-            ctx.lineTo(px + p.size, py + p.size);
-            ctx.fill();
+            if (currentChapter.current === 3) {
+                // CHAPTER 3: CARTOON CHARACTER (Cuphead style)
+                const bob = Math.sin(frameCount.current * 0.2) * 4;
+                const legMove = Math.sin(frameCount.current * 0.3) * 12;
+                const isMoving = Math.abs(p.vel.x || 0) > 0.1;
+                const isCrouching = p.ch3Crouching;
+                const dir = p.vel.x >= 0 ? 1 : -1;
+
+                ctx.save();
+                ctx.translate(px, py + (isCrouching ? 5 : 0));
+                ctx.scale(dir, 1); // Flip based on direction
+
+                // Thick Outline Style for everything
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+
+                // Legs (Thick Ink)
+                ctx.lineWidth = 8;
+                ctx.strokeStyle = '#000';
+                if (!p.ch3Grounded) {
+                    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-15, 12); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(10, 8); ctx.stroke();
+                } else if (isMoving && !isCrouching) {
+                    ctx.beginPath(); ctx.moveTo(-5, 5); ctx.lineTo(-legMove, 18); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(5, 5); ctx.lineTo(legMove, 18); ctx.stroke();
+                } else {
+                    ctx.beginPath(); ctx.moveTo(-6, 5); ctx.lineTo(-6, 18); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(6, 5); ctx.lineTo(6, 18); ctx.stroke();
+                }
+
+                // Inner Legs (Colored)
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = p.color;
+                if (!p.ch3Grounded) {
+                    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-15, 12); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(10, 8); ctx.stroke();
+                } else if (isMoving && !isCrouching) {
+                    ctx.beginPath(); ctx.moveTo(-5, 5); ctx.lineTo(-legMove, 18); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(5, 5); ctx.lineTo(legMove, 18); ctx.stroke();
+                } else {
+                    ctx.beginPath(); ctx.moveTo(-6, 5); ctx.lineTo(-6, 18); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(6, 5); ctx.lineTo(6, 18); ctx.stroke();
+                }
+
+                // Body (Rubber-hose style body)
+                ctx.fillStyle = p.color;
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.ellipse(0, bob - (isCrouching ? 5 : 20), 22, isCrouching ? 15 : 30, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Face Overlay (Whitish circle)
+                ctx.fillStyle = '#fff9f0';
+                ctx.beginPath();
+                ctx.ellipse(5, bob - (isCrouching ? 8 : 25), 15, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Pacman Eyes
+                ctx.fillStyle = '#000';
+                // Left Eye
+                ctx.beginPath(); ctx.ellipse(8, bob - (isCrouching ? 10 : 28), 3, 5, 0.1, 0, Math.PI * 2); ctx.fill();
+                // Right Eye
+                ctx.beginPath(); ctx.ellipse(15, bob - (isCrouching ? 10 : 28), 3, 5, -0.1, 0, Math.PI * 2); ctx.fill();
+
+                // Sinister Grin
+                ctx.beginPath();
+                ctx.arc(10, bob - (isCrouching ? 2 : 20), 6, 0.2, Math.PI - 0.2);
+                ctx.stroke();
+
+                // Gloved Hand/Gun
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(20, bob - 15, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                // Fingers pointing
+                ctx.fillStyle = '#000';
+                ctx.fillRect(25, bob - 18, 12, 4);
+
+                ctx.restore();
+            }
+            else {
+                // CHAPTER 1 & 2: SHIP / SOUL
+                ctx.beginPath();
+                ctx.moveTo(px, py - p.size * 1.5);
+                ctx.lineTo(px - p.size, py + p.size);
+                ctx.lineTo(px + p.size, py + p.size);
+                ctx.fill();
+            }
 
             if (p.slowTimer > 0) {
                 ctx.strokeStyle = '#a855f7';
@@ -2327,6 +3025,80 @@ export const GameCanvas: React.FC = () => {
                     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, 15, 0, Math.PI * 2); ctx.fill();
                     ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(ex + Math.sin(frameCount.current * 0.1) * 5, ey, 5, 0, Math.PI * 2); ctx.fill();
                 }
+            } else if (currentChapter.current === 3) {
+                // CHAPTER 3: CARTOON BOSS RENDERING
+                const bx = boss.current.pos.x;
+                const by = boss.current.pos.y;
+                const bossType = boss.current.type;
+                const bob = Math.sin(frameCount.current * 0.05) * 15;
+                const tilt = Math.cos(frameCount.current * 0.04) * 0.1;
+
+                ctx.save();
+                ctx.translate(bx, by + bob);
+                ctx.rotate(tilt);
+
+                // Thick Outline Style
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 6;
+                ctx.lineJoin = 'round';
+
+                const drawEyes = (yOffset = -20) => {
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath(); ctx.ellipse(-20, yOffset, 15, 20, 0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                    ctx.beginPath(); ctx.ellipse(20, yOffset, 15, 20, -0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath(); ctx.arc(-15, yOffset + 5, 5, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(15, yOffset + 5, 5, 0, Math.PI * 2); ctx.fill();
+                };
+
+                switch (bossType) {
+                    case 0 as BossType: // Mortimer (Clown)
+                        ctx.fillStyle = '#fff';
+                        ctx.beginPath(); ctx.ellipse(0, 0, 60, 70, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#ef4444'; // Red Nose
+                        ctx.beginPath(); ctx.arc(0, 5, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#fb923c'; // Orange Hair
+                        ctx.beginPath(); ctx.arc(-50, -30, 25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.beginPath(); ctx.arc(50, -30, 25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        drawEyes(-25);
+                        break;
+                    case 1 as BossType: // Baronesa (Vampire)
+                        ctx.fillStyle = '#1e1b4b'; // Dark Cape 
+                        ctx.beginPath(); ctx.moveTo(-70, 0); ctx.lineTo(0, -90); ctx.lineTo(70, 0); ctx.lineTo(0, 110); ctx.closePath(); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#fef3c7'; // Face
+                        ctx.beginPath(); ctx.ellipse(0, -35, 30, 35, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        drawEyes(-35);
+                        break;
+                    case 2 as BossType: // Verdolaga (Plant)
+                        ctx.fillStyle = '#15803d'; // Green Face
+                        ctx.beginPath(); ctx.ellipse(0, 0, 70, 60, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#facc15'; // Petals/Hair
+                        for (let i = 0; i < 8; i++) {
+                            ctx.save();
+                            ctx.rotate((i / 8) * Math.PI * 2 + frameCount.current * 0.01);
+                            ctx.beginPath(); ctx.ellipse(85, 0, 25, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                            ctx.restore();
+                        }
+                        drawEyes(-10);
+                        break;
+                    case 3 as BossType: // Caramela (Witch)
+                        ctx.fillStyle = '#f472b6'; // Pink
+                        ctx.beginPath(); ctx.ellipse(0, 0, 50, 60, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#701a75'; // Hat
+                        ctx.beginPath(); ctx.moveTo(-60, -15); ctx.lineTo(60, -15); ctx.lineTo(0, -130); ctx.closePath(); ctx.fill(); ctx.stroke();
+                        drawEyes(-20);
+                        break;
+                    case 4 as BossType: // Scratch (Devil)
+                        ctx.fillStyle = '#ef4444'; // Red
+                        ctx.beginPath(); ctx.ellipse(0, 0, 80, 90, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                        ctx.fillStyle = '#000'; // Horns
+                        ctx.beginPath(); ctx.moveTo(-35, -70); ctx.quadraticCurveTo(-50, -110, -70, -100); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(35, -70); ctx.quadraticCurveTo(50, -110, 70, -100); ctx.stroke();
+                        drawEyes(-30);
+                        break;
+                }
+
+                ctx.restore();
             } else {
                 for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(bx + (Math.random() - 0.5) * 20, by + (Math.random() - 0.5) * 20, b.size * 0.8, 0, Math.PI * 2); ctx.fill(); }
             }
@@ -2656,19 +3428,34 @@ export const GameCanvas: React.FC = () => {
 
     useEffect(() => {
         let animationFrameId: number;
+        let lastTime = performance.now();
+        let accumulator = 0;
+        const timestep = 1000 / 60; // 16.67ms per update
 
-        const render = () => {
+        const render = (currentTime: number) => {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+
+            // Cap deltaTime to avoid "spiral of death" when tab is inactive
+            const cappedDelta = Math.min(deltaTime, 100);
+            accumulator += cappedDelta;
+
             const canvas = canvasRef.current;
             if (canvas) {
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
-                    update(); // Update Logic
-                    draw(ctx); // Render
+                    // Run logic updates in fixed steps
+                    while (accumulator >= timestep) {
+                        update();
+                        accumulator -= timestep;
+                    }
+                    // Render current state
+                    draw(ctx);
                 }
             }
             animationFrameId = window.requestAnimationFrame(render);
         };
-        render();
+        animationFrameId = window.requestAnimationFrame(render);
 
         return () => {
             window.cancelAnimationFrame(animationFrameId);
@@ -2700,109 +3487,143 @@ export const GameCanvas: React.FC = () => {
             >
 
                 {uiState === GameState.PLAYING && (
-                    <>
-                        <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
-                            <div className="flex items-center gap-2 bg-red-950/80 border border-red-800 p-2 rounded shadow-lg backdrop-blur-sm mb-2">
-                                <AlertTriangle size={16} className="text-red-500 animate-pulse" />
-                                <div className="flex flex-col items-end leading-none">
-                                    <span className="text-[10px] text-red-300 font-bold uppercase tracking-wider">System Reboots</span>
-                                    <span className="text-lg font-bold text-red-100">{deathsUntilReset} / 10 REMAINING</span>
-                                </div>
-                            </div>
-
-                            {collectedUpgrades.map((item, idx) => (
-                                <div key={idx} className="flex items-center gap-3 bg-slate-950/80 border border-slate-800 p-2 rounded shadow-lg backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] flex-row-reverse text-right">
-                                    <div className="bg-slate-900 p-1 rounded border border-slate-700">
-                                        {getUpgradeIcon(item.upgrade.id, 14)}
-                                    </div>
-                                    <div className="flex flex-col leading-none items-end">
-                                        <span className="text-xs text-slate-300 font-bold tracking-wide uppercase">{item.upgrade.name}</span>
-                                        <span className="text-[10px] text-slate-500">{item.upgrade.rarity}</span>
-                                    </div>
-                                    <div className="mr-2 flex items-center justify-center bg-yellow-500/20 text-yellow-400 text-xs font-bold px-1.5 py-0.5 rounded border border-yellow-500/30">
-                                        x{item.count}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="w-full flex flex-col items-center gap-2 mt-2 pointer-events-none">
-                            <div className="flex flex-col items-center">
-                                <h2 className="text-red-500 font-bold text-xl tracking-[0.2em] animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]">
-                                    {bossName}
-                                </h2>
-                                {bossModifiers.length > 0 && (
-                                    <div className="flex flex-col items-center gap-1 mt-1">
-                                        <div className="text-[10px] text-red-400 font-bold tracking-widest border-b border-red-900/50 mb-1">THREAT MODIFIERS</div>
-                                        {bossModifiers.map((mod, i) => (
-                                            <div key={i} className="text-xs text-yellow-300 font-mono bg-red-950/40 px-2 py-0.5 rounded border border-red-900/50">
-                                                {mod}
+                    <div className="w-full h-full flex flex-col justify-between p-4 bg-transparent relative">
+                        {currentChapter.current === 3 ? (
+                            <>
+                                {/* CARTOON HUD TOP (Health & Boss) */}
+                                <div className="flex justify-between items-start w-full">
+                                    <div className="flex gap-2">
+                                        {Array.from({ length: Math.ceil(playerHp.current / 20) }).map((_, i) => (
+                                            <div key={i} className="w-8 h-12 bg-white border-4 border-black rounded-sm flex items-center justify-center -rotate-6 shadow-md">
+                                                <Heart size={16} fill="#ef4444" className="text-black" />
                                             </div>
                                         ))}
+                                        <div className="ml-2 font-black text-2xl text-black italic" style={{ textShadow: '2px 2px #fff' }}>
+                                            HP: {Math.floor(playerHp.current)}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
 
-                            <div className="w-3/4 h-6 bg-slate-900 border-2 border-red-900 skew-x-[-20deg] overflow-hidden relative">
-                                <div
-                                    className="h-full bg-red-600 transition-all duration-200"
-                                    style={{ width: `${(bossHp.current / bossHp.max) * 100}%` }}
-                                ></div>
-                            </div>
-                        </div>
-
-                        <div className="w-full flex justify-between items-end">
-                            <div className="flex flex-col gap-1">
-                                <span className="text-blue-400 font-bold tracking-widest text-lg">SYSTEM INTEGRITY</span>
-                                <div className="w-64 h-4 bg-slate-900 border border-blue-900 rounded">
-                                    <div
-                                        className="h-full bg-blue-500 transition-all duration-100"
-                                        style={{ width: `${(playerHp.current / playerHp.max) * 100}%` }}
-                                    ></div>
-                                </div>
-                                <div className="text-blue-300 text-sm">
-                                    {Math.floor(playerHp.current)} / {Math.floor(playerHp.max)}
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col items-end gap-1">
-                                <span className="text-purple-400 font-bold tracking-widest text-lg uppercase">
-                                    {player.current.secondaryWeapon !== 'NONE' ? player.current.secondaryWeapon : 'NO MODULE'}
-                                </span>
-                                {player.current.secondaryWeapon !== 'NONE' && (
                                     <div className="flex flex-col items-end">
-                                        <div className="w-48 h-4 bg-slate-900 border border-purple-900 rounded relative overflow-hidden">
+                                        <div className="bg-[#92400e] px-4 py-1 border-4 border-black -rotate-2 shadow-lg">
+                                            <span className="text-white font-black text-xl italic uppercase tracking-tighter">{bossName}</span>
+                                        </div>
+                                        <div className="w-64 h-6 bg-white border-4 border-black mt-2 -rotate-1 relative overflow-hidden">
                                             <div
-                                                className="h-full bg-purple-900 transition-all duration-75 absolute right-0 top-0 bottom-0"
-                                                style={{
-                                                    width: `${(player.current.secondaryCooldownTimer / player.current.secondaryCooldownMax) * 100}%`,
-                                                    opacity: 0.5
-                                                }}
-                                            ></div>
-                                            <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-widest">
-                                                {player.current.secondaryCooldownTimer > 0
-                                                    ? 'RECHARGING...'
-                                                    : 'READY [R-CLICK]'}
+                                                className="h-full bg-[#ef4444] transition-all duration-300"
+                                                style={{ width: `${(bossHp.current / bossHp.max) * 100}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* CARTOON HUD BOTTOM (Weapons & Coins) */}
+                                <div className="flex justify-between items-end w-full">
+                                    <div className="flex items-center gap-2 bg-yellow-400 px-4 py-2 border-4 border-black rounded-lg shadow-lg rotate-3">
+                                        <span className="text-black font-black text-2xl italic">${ch3CoinsUI}</span>
+                                    </div>
+
+                                    <div className="flex gap-4">
+                                        {[0, 1].map(idx => {
+                                            const wId = ch3Loadout.current[idx];
+                                            const weapon = CH3_WEAPONS.find(w => w.id === wId);
+                                            const isSelected = selectedCh3Slot.current === idx;
+                                            return (
+                                                <div key={idx} className={`w-28 h-16 bg-white border-8 border-black rounded-xl p-2 flex flex-col items-center justify-center transition-all ${isSelected ? 'scale-110 -translate-y-4 shadow-2xl bg-yellow-200' : 'opacity-40 grayscale'} `}>
+                                                    <span className="text-[10px] font-black uppercase text-black leading-none">{idx === 0 ? 'SLOT A' : 'SLOT B'}</span>
+                                                    <span className="text-xs font-black text-[#92400e] text-center leading-tight">{weapon?.name || '---'}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
+                                    <div className="flex items-center gap-2 bg-red-950/80 border border-red-800 p-2 rounded shadow-lg backdrop-blur-sm mb-2">
+                                        <AlertTriangle size={16} className="text-red-500 animate-pulse" />
+                                        <div className="flex flex-col items-end leading-none">
+                                            <span className="text-[10px] text-red-300 font-bold uppercase tracking-wider">System Reboots</span>
+                                            <span className="text-lg font-bold text-red-100">{deathsUntilReset} / 10 REMAINING</span>
+                                        </div>
+                                    </div>
+
+                                    {collectedUpgrades.map((item, idx) => (
+                                        <div key={idx} className="flex items-center gap-3 bg-slate-950/80 border border-slate-800 p-2 rounded shadow-lg backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] flex-row-reverse text-right">
+                                            <div className="bg-slate-900 p-1 rounded border border-slate-700">
+                                                {getUpgradeIcon(item.upgrade.id, 14)}
+                                            </div>
+                                            <div className="flex flex-col leading-none items-end">
+                                                <span className="text-xs text-slate-300 font-bold tracking-wide uppercase">{item.upgrade.name}</span>
+                                                <span className="text-[10px] text-slate-500">{item.upgrade.rarity}</span>
+                                            </div>
+                                            <div className="mr-2 flex items-center justify-center bg-yellow-500/20 text-yellow-400 text-xs font-bold px-1.5 py-0.5 rounded border border-yellow-500/30">
+                                                x{item.count}
                                             </div>
                                         </div>
-                                        <span className="text-[10px] text-purple-300 mt-1">
-                                            LEVEL {player.current.secondaryWeaponLevel} {player.current.secondaryWeaponLevel === 3 ? '(MAX)' : ''}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {player.current.invertedControls && (
-                                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-1 rounded font-bold animate-pulse">
-                                    WARNING: CONTROLS INVERTED
+                                    ))}
                                 </div>
-                            )}
 
-                            <div className="text-xs text-slate-500 font-mono absolute bottom-4 left-1/2 -translate-x-1/2">
-                                WASD Move | SPACE Dash | L-CLICK Fire | R-CLICK Ability
+                                <div className="w-full h-full flex flex-col justify-between pointer-events-none">
+                                    <div className="flex flex-col items-center mt-2">
+                                        <h2 className="text-red-500 font-bold text-xl tracking-[0.2em] animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]">
+                                            {bossName}
+                                        </h2>
+                                        {bossModifiers.length > 0 && (
+                                            <div className="flex flex-col items-center gap-1 mt-1">
+                                                <div className="text-[10px] text-red-400 font-bold tracking-widest border-b border-red-900/50 mb-1">THREAT MODIFIERS</div>
+                                                {bossModifiers.map((mod, i) => (
+                                                    <div key={i} className="text-xs text-yellow-300 font-mono bg-red-950/40 px-2 py-0.5 rounded border border-red-900/50">
+                                                        {mod}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="w-3/4 h-6 bg-slate-900 border-2 border-red-900 skew-x-[-20deg] overflow-hidden relative mt-2">
+                                            <div className="h-full bg-red-600 transition-all duration-200" style={{ width: `${(bossHp.current / bossHp.max) * 100}%` }} />
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full flex justify-between items-end mb-4">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-blue-400 font-bold tracking-widest text-lg">SYSTEM INTEGRITY</span>
+                                            <div className="w-64 h-4 bg-slate-900 border border-blue-900 rounded">
+                                                <div className="h-full bg-blue-500 transition-all duration-100" style={{ width: `${(playerHp.current / playerHp.max) * 100}%` }} />
+                                            </div>
+                                            <div className="text-blue-300 text-sm">{Math.floor(playerHp.current)} / {Math.floor(playerHp.max)}</div>
+                                        </div>
+
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className="text-purple-400 font-bold tracking-widest text-lg uppercase">
+                                                {player.current.secondaryWeapon !== 'NONE' ? player.current.secondaryWeapon : 'NO MODULE'}
+                                            </span>
+                                            {player.current.secondaryWeapon !== 'NONE' && (
+                                                <div className="flex flex-col items-end">
+                                                    <div className="w-48 h-4 bg-slate-900 border border-purple-900 rounded relative overflow-hidden">
+                                                        <div className="h-full bg-purple-900 transition-all duration-75 absolute right-0 top-0 bottom-0" style={{ width: `${(player.current.secondaryCooldownTimer / player.current.secondaryCooldownMax) * 100}%`, opacity: 0.5 }} />
+                                                        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-widest">
+                                                            {player.current.secondaryCooldownTimer > 0 ? 'RECHARGING...' : 'READY [R-CLICK]'}
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[10px] text-purple-300 mt-1">LEVEL {player.current.secondaryWeaponLevel} {player.current.secondaryWeaponLevel === 3 ? '(MAX)' : ''}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {player.current.invertedControls && (
+                            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-1 rounded font-bold animate-pulse">
+                                WARNING: CONTROLS INVERTED
                             </div>
+                        )}
+
+                        <div className="text-xs text-slate-500 font-mono absolute bottom-4 left-1/2 -translate-x-1/2">
+                            WASD Move | SPACE Dash | L-CLICK Fire | R-CLICK Ability | Q Switch Weapon
                         </div>
-                    </>
+                    </div>
                 )}
 
                 {uiState === GameState.MENU && (
@@ -2810,25 +3631,14 @@ export const GameCanvas: React.FC = () => {
                         <h1 className="text-6xl font-black text-white tracking-tighter mb-2" style={{ textShadow: '4px 4px 0px #ef4444' }}>
                             BOSS RUSH
                         </h1>
-                        <h2 className="text-2xl text-cyan-400 tracking-[0.5em] mb-12">ASCENSION</h2>
                         <button
-                            onClick={() => startGame(false)}
+                            onClick={() => setUiState(GameState.CHAPTER_SELECT)}
                             className="group relative px-8 py-4 bg-transparent border-2 border-white text-white font-bold text-xl uppercase tracking-widest hover:bg-white hover:text-black transition-all"
                         >
-                            Initialize Combat
+                            <Target size={24} className="inline mr-2" />
+                            SELECT CHAPTER
                             <div className="absolute inset-0 bg-white/20 scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
                         </button>
-
-                        {phase2Unlocked && (
-                            <button
-                                onClick={() => startGame(true)}
-                                className="group relative px-8 py-4 mt-4 bg-transparent border-2 border-purple-500 text-purple-400 font-bold text-xl uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all"
-                            >
-                                <Ghost size={24} className="inline mr-2" />
-                                CHAPTER 2 START
-                                <div className="absolute inset-0 bg-purple-500/20 scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
-                            </button>
-                        )}
 
                         <div className="mt-8 text-slate-400 text-sm flex flex-col items-center gap-2">
                             <div className="flex items-center gap-2"><Rocket size={16} /> Movement: WASD / Arrows</div>
@@ -2972,13 +3782,13 @@ export const GameCanvas: React.FC = () => {
                                         <Heart size={20} /> {godModeEnabled ? "VIDA INFINITA: ACTIVA" : "VIDA INFINITA: INACTIVA"}
                                     </button>
                                     <button
-                                        onClick={() => startGame(true)}
+                                        onClick={() => startGame(2)}
                                         className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 mt-4"
                                     >
                                         <Ghost size={20} /> Capítulo 2
                                     </button>
                                     <button
-                                        onClick={() => startGame(false)}
+                                        onClick={() => startGame(1)}
                                         className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2"
                                     >
                                         <Unlock size={20} /> Launch Game
@@ -2999,7 +3809,7 @@ export const GameCanvas: React.FC = () => {
                             <p className="text-slate-400 text-xs mt-2">Upgrades will persist until power depletion.</p>
                         </div>
                         <button
-                            onClick={() => startGame(player.current.isSoulMode)}
+                            onClick={() => startGame(player.current.isSoulMode ? 2 : (currentChapter.current === 3 ? 3 : 1))}
                             className="px-8 py-3 bg-red-600 text-white font-bold rounded shadow-lg hover:bg-red-500 transition-colors flex items-center gap-2"
                         >
                             <RefreshCw size={20} /> Reboot System
@@ -3012,7 +3822,7 @@ export const GameCanvas: React.FC = () => {
                         <h1 className="text-6xl font-black text-yellow-400 tracking-widest mb-4">ASCENSION COMPLETE</h1>
                         <p className="text-white text-xl mb-8">All targets neutralized.</p>
                         <button
-                            onClick={() => startGame(player.current.isSoulMode)}
+                            onClick={() => startGame(player.current.isSoulMode ? 2 : (currentChapter.current === 3 ? 3 : 1))}
                             className="px-8 py-3 bg-yellow-500 text-black font-bold rounded shadow-lg hover:bg-yellow-400 transition-colors"
                         >
                             Play Again (New Game+)
@@ -3020,42 +3830,283 @@ export const GameCanvas: React.FC = () => {
                     </div>
                 )}
 
-                {uiState === GameState.UPGRADING && (
-                    <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-md z-50">
-                        <h2 className="text-3xl text-cyan-400 font-bold mb-2">TARGET ELIMINATED</h2>
-                        <p className="text-slate-300 mb-8">Select System Upgrade</p>
+                {uiState === GameState.CHAPTER_SELECT && (
+                    <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-8 z-50 overflow-y-auto">
+                        <div className="relative mb-8">
+                            <h2 className="text-5xl font-black text-white italic tracking-tighter flex items-center gap-4 drop-shadow-[0_2px_4px_rgba(34,211,238,0.5)]">
+                                <Target size={40} className="text-cyan-400 animate-pulse" /> MISSION SELECTION
+                            </h2>
+                            <div className="h-1 w-full bg-cyan-900 mt-2"></div>
+                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl px-8">
-                            {availableUpgrades.map((upg, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => selectUpgrade(upg)}
-                                    className={`
-                                    relative p-6 border-2 rounded-lg text-left transition-all hover:-translate-y-2 hover:shadow-xl group
-                                    ${upg.rarity === 'COMMON' ? 'border-slate-500 bg-slate-800' :
-                                            upg.rarity === 'RARE' ? 'border-blue-500 bg-blue-950' :
-                                                upg.rarity === 'MYTHIC' ? 'border-purple-500 bg-purple-950' :
-                                                    'border-yellow-500 bg-yellow-950'}
-                                    ${upg.type === 'SECONDARY_WEAPON' && !upg.isWeaponUpgrade ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-black' : ''}
-                                    ${upg.isWeaponUpgrade ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-black' : ''}
-                                `}
-                                >
-                                    <div className="absolute -top-3 -right-3">
-                                        {upg.rarity === 'MYTHIC' && <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded shadow-[0_0_10px_#a855f7]">MYTHIC</span>}
-                                        {upg.rarity === 'LEGENDARY' && <span className="px-2 py-1 bg-yellow-500 text-black text-xs font-bold rounded">LEGENDARY</span>}
-                                        {upg.rarity === 'RARE' && <span className="px-2 py-1 bg-blue-500 text-white text-xs font-bold rounded">RARE</span>}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
+                            {/* Chapter 1 */}
+                            <div className="bg-slate-900 border-2 border-blue-500/50 p-6 rounded-2xl flex flex-col items-center text-center hover:border-blue-400 transition-all group overflow-hidden relative">
+                                <div className="absolute top-0 right-0 p-2 bg-blue-500/10 rounded-bl-xl text-[10px] font-bold text-blue-400">SCI-FI CLASSIC</div>
+                                <h3 className="text-2xl font-black text-blue-400 mb-2">CHAPTER 1</h3>
+                                <p className="text-slate-400 text-xs mb-6 h-12">Combat subroutines in the deep blue grid. Neutralize the 5 sentinels.</p>
+
+                                <div className="flex flex-col gap-2 w-full mt-auto">
+                                    <button
+                                        onClick={() => startGame(1, 0)}
+                                        className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg active:translate-y-1"
+                                    >
+                                        REBOOT FROM START
+                                    </button>
+
+                                    <div className="grid grid-cols-5 gap-1">
+                                        {[0, 1, 2, 3, 4].map(idx => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => startGame(1, idx)}
+                                                className="py-1.5 bg-slate-800 hover:bg-blue-900 text-[10px] font-bold text-blue-300 rounded border border-blue-900/50"
+                                            >
+                                                B{idx + 1}
+                                            </button>
+                                        ))}
                                     </div>
-                                    <div className="mb-4">
-                                        {getUpgradeIcon(upg.id, 24)}
+                                </div>
+                            </div>
+
+                            {/* Chapter 2 */}
+                            <div className={`bg-slate-900 border-2 ${phase2Unlocked ? 'border-purple-500/50 hover:border-purple-400' : 'border-slate-800'} p-6 rounded-2xl flex flex-col items-center text-center transition-all group relative`}>
+                                {!phase2Unlocked && (
+                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-2xl">
+                                        <Lock size={48} className="text-slate-600 mb-2 animate-bounce" />
+                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Defeat Chapter 1 to Unlock</span>
                                     </div>
-                                    <h3 className="text-xl font-bold text-white mb-2 group-hover:text-cyan-300">{upg.name}</h3>
-                                    <p className="text-slate-400 text-sm leading-relaxed">{upg.description}</p>
+                                )}
+                                <div className="absolute top-0 right-0 p-2 bg-purple-500/10 rounded-bl-xl text-[10px] font-bold text-purple-400 uppercase">Void Soul</div>
+                                <h3 className={`text-2xl font-black ${phase2Unlocked ? 'text-purple-400' : 'text-slate-600'} mb-2`}>CHAPTER 2</h3>
+                                <p className="text-slate-400 text-xs mb-6 h-12">The digital afterlife. Merge your soul with the architecture.</p>
+
+                                <div className="flex flex-col gap-2 w-full mt-auto">
+                                    <button
+                                        onClick={() => startGame(2, 0)}
+                                        disabled={!phase2Unlocked}
+                                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all shadow-lg active:translate-y-1"
+                                    >
+                                        ENTER THE VOID
+                                    </button>
+                                    <div className="grid grid-cols-5 gap-1">
+                                        {[0, 1, 2, 3, 4].map(idx => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => startGame(2, idx)}
+                                                disabled={!phase2Unlocked}
+                                                className="py-1.5 bg-slate-800 hover:bg-purple-900 text-[10px] font-bold text-purple-300 rounded border border-purple-900/30"
+                                            >
+                                                B{idx + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Chapter 3 */}
+                            <div className={`bg-slate-900 border-2 ${chapter3Unlocked ? 'border-orange-500/50 hover:border-orange-400' : 'border-slate-800'} p-6 rounded-2xl flex flex-col items-center text-center transition-all group relative`}>
+                                {!chapter3Unlocked && (
+                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-2xl">
+                                        <Lock size={48} className="text-slate-600 mb-2 animate-bounce" />
+                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Defeat Chapter 2 to Unlock</span>
+                                    </div>
+                                )}
+                                <div className="absolute top-0 right-0 p-2 bg-orange-500/10 rounded-bl-xl text-[10px] font-bold text-orange-400 uppercase italic">Cartoon Chaos</div>
+                                <h3 className={`text-2xl font-black ${chapter3Unlocked ? 'text-orange-400' : 'text-slate-600'} mb-2 italic`}>CHAPTER 3</h3>
+                                <p className="text-slate-400 text-xs mb-6 h-12">Hand-painted nightmares. High velocity jazz combat.</p>
+
+                                <div className="flex flex-col gap-2 w-full mt-auto">
+                                    <button
+                                        onClick={() => {
+                                            setUiState(GameState.CH3_SHOP);
+                                            gameState.current = GameState.CH3_SHOP;
+                                        }}
+                                        disabled={!chapter3Unlocked}
+                                        className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition-all shadow-lg active:translate-y-1 italic"
+                                    >
+                                        GO CARTOON!
+                                    </button>
+                                    <div className="grid grid-cols-5 gap-1">
+                                        {[0, 1, 2, 3, 4].map(idx => {
+                                            const checkpoint = JSON.parse(localStorage.getItem('chapter3_checkpoint') || '{}');
+                                            const isReachable = idx === 0 || (checkpoint && checkpoint.lastBossDefeated >= idx);
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    onClick={() => startGame(3, idx)}
+                                                    disabled={!chapter3Unlocked || !isReachable}
+                                                    className={`py-1.5 text-[10px] font-black rounded border italic ${isReachable ? 'bg-slate-800 hover:bg-orange-900 text-orange-300 border-orange-900/30' : 'bg-slate-950 text-slate-700 border-slate-900 cursor-not-allowed'}`}
+                                                >
+                                                    {isReachable ? `B${idx + 1}` : <Lock size={8} className="mx-auto" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => setUiState(GameState.MENU)}
+                            className="mt-12 text-slate-500 hover:text-white flex items-center gap-2 group transition-colors"
+                        >
+                            <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
+                            Return to Main Menu
+                        </button>
+                    </div>
+                )}
+
+                {uiState === GameState.CH3_SHOP && (
+                    <div className="absolute inset-0 bg-[#fef3c7] flex flex-col p-8 z-50 pointer-events-auto overflow-hidden">
+                        {/* Cartoon Background pattern */}
+                        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#d97706 2px, transparent 2px)', backgroundSize: '20px 20px' }}></div>
+
+                        <div className="relative flex justify-between items-center mb-8 border-b-4 border-[#d97706] pb-4">
+                            <h2 className="text-5xl font-black text-[#92400e] italic tracking-tighter" style={{ textShadow: '2px 2px 0px #fff' }}>
+                                PORKY'S WEAPON SHOP
+                            </h2>
+                            <div className="flex items-center gap-6">
+                                <div className="bg-[#fbbf24] px-6 py-2 rounded-full border-4 border-[#92400e] flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-yellow-400 rounded-full border-2 border-yellow-600 flex items-center justify-center font-bold text-yellow-900">$</div>
+                                    <span className="text-2xl font-black text-[#92400e]">{ch3CoinsUI} COINS</span>
+                                </div>
+                                <button onClick={() => setUiState(GameState.CH3_INVENTORY)} className="px-6 py-2 bg-[#92400e] text-white font-bold rounded hover:bg-[#78350f] transition-colors">
+                                    MY GEAR
                                 </button>
-                            ))}
+                                <button onClick={() => setUiState(GameState.CHAPTER_SELECT)} className="text-[#92400e] font-bold underline">BACK</button>
+                            </div>
+                        </div>
+
+                        <div className="relative grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto pb-8 pr-2">
+                            {CH3_WEAPONS.map(weapon => {
+                                const isOwned = ch3OwnedUI.includes(weapon.id);
+                                const canAfford = ch3Coins.current >= weapon.price;
+
+                                return (
+                                    <div key={weapon.id} className={`bg-white border-4 p-4 rounded-xl flex flex-col ${isOwned ? 'border-green-500' : 'border-[#92400e]'} shadow-lg`}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="text-[10px] font-bold bg-[#fef3c7] px-2 py-0.5 rounded border border-[#92400e] uppercase text-[#92400e]">{weapon.type}</span>
+                                            <span className="font-black text-xl text-[#92400e]">${weapon.price}</span>
+                                        </div>
+                                        <h3 className="text-xl font-black text-[#451a03] mb-1 uppercase tracking-tight">{weapon.name}</h3>
+                                        <p className="text-xs text-[#78350f] font-bold leading-tight flex-1 mb-4">{weapon.description}</p>
+
+                                        {isOwned ? (
+                                            <div className="w-full py-2 bg-green-100 text-green-700 font-extrabold text-center rounded border-2 border-green-500 uppercase">OWNED</div>
+                                        ) : (
+                                            <button
+                                                disabled={!canAfford}
+                                                onClick={() => {
+                                                    ch3Coins.current -= weapon.price;
+                                                    setCh3CoinsUI(ch3Coins.current);
+                                                    ch3WeaponsOwned.current = [...ch3WeaponsOwned.current, weapon.id];
+                                                    setCh3OwnedUI(ch3WeaponsOwned.current);
+                                                    localStorage.setItem('chapter3_coins', ch3Coins.current.toString());
+                                                    localStorage.setItem('chapter3_weapons_owned', JSON.stringify(ch3WeaponsOwned.current));
+                                                }}
+                                                className={`w-full py-2 font-black rounded border-b-4 transition-all ${canAfford ? 'bg-yellow-400 border-yellow-700 hover:bg-yellow-300' : 'bg-slate-300 border-slate-400 text-slate-500 cursor-not-allowed'}`}
+                                            >
+                                                BUY
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {uiState === GameState.CH3_INVENTORY && (
+                    <div className="absolute inset-0 bg-[#dcfce7] flex flex-col p-8 z-50 pointer-events-auto overflow-hidden border-[12px] border-[#166534]">
+                        <h2 className="text-6xl font-black text-[#14532d] mb-8 italic" style={{ textShadow: '3px 3px 0px #fff' }}>GEAR UP!</h2>
+
+                        <div className="flex gap-8 h-full">
+                            {/* Owned List */}
+                            <div className="w-1/2 bg-white/50 rounded-2xl p-6 border-4 border-[#166534] flex flex-col">
+                                <h3 className="text-2xl font-black text-[#166534] mb-4 underline">COLLECTION</h3>
+                                <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-2">
+                                    {ch3OwnedUI.map(id => {
+                                        const weapon = CH3_WEAPONS.find(w => w.id === id);
+                                        const isEquippedA = ch3LoadoutUI[0] === id;
+                                        const isEquippedB = ch3LoadoutUI[1] === id;
+
+                                        return (
+                                            <div key={id} className={`p-3 rounded-lg border-2 ${isEquippedA || isEquippedB ? 'bg-yellow-200 border-yellow-600' : 'bg-white border-[#166534]'} flex flex-col gap-2`}>
+                                                <div className="font-bold text-[#14532d] uppercase text-sm">{weapon?.name}</div>
+                                                <div className="flex gap-1">
+                                                    <button
+                                                        onClick={() => {
+                                                            const newLoadout: [number, number] = [id, ch3Loadout.current[1]];
+                                                            ch3Loadout.current = newLoadout;
+                                                            setCh3LoadoutUI(newLoadout);
+                                                            localStorage.setItem('chapter3_loadout', JSON.stringify(newLoadout));
+                                                        }}
+                                                        className={`flex-1 py-1 text-[10px] font-black rounded ${isEquippedA ? 'bg-yellow-600 text-white' : 'bg-white border border-yellow-600 text-yellow-700'}`}
+                                                    >
+                                                        SLOT A
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            const newLoadout: [number, number] = [ch3Loadout.current[0], id];
+                                                            ch3Loadout.current = newLoadout;
+                                                            setCh3LoadoutUI(newLoadout);
+                                                            localStorage.setItem('chapter3_loadout', JSON.stringify(newLoadout));
+                                                        }}
+                                                        className={`flex-1 py-1 text-[10px] font-black rounded ${isEquippedB ? 'bg-yellow-600 text-white' : 'bg-white border border-yellow-600 text-yellow-700'}`}
+                                                    >
+                                                        SLOT B
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Current Loadout & Launch */}
+                            <div className="flex-1 flex flex-col justify-between">
+                                <div className="space-y-6">
+                                    <div className="bg-[#fbbf24] border-4 border-[#92400e] p-6 rounded-3xl shadow-[8px_8px_0px_#92400e]">
+                                        <h4 className="text-xl font-black text-[#78350f] mb-4">ACTIVE LOADOUT</h4>
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-4 bg-white/80 p-3 rounded-xl border-2 border-[#92400e]">
+                                                <div className="w-12 h-12 bg-orange-200 rounded-lg flex items-center justify-center font-black text-2xl text-orange-800">A</div>
+                                                <div>
+                                                    <div className="font-black text-[#451a03]">{CH3_WEAPONS.find(w => w.id === ch3LoadoutUI[0])?.name || 'Empty'}</div>
+                                                    <div className="text-[10px] font-bold text-[#92400e] uppercase">{CH3_WEAPONS.find(w => w.id === ch3LoadoutUI[0])?.type || 'Select a weapon'}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-4 bg-white/80 p-3 rounded-xl border-2 border-[#92400e]">
+                                                <div className="w-12 h-12 bg-orange-200 rounded-lg flex items-center justify-center font-black text-2xl text-orange-800">B</div>
+                                                <div>
+                                                    <div className="font-black text-[#451a03]">{CH3_WEAPONS.find(w => w.id === ch3LoadoutUI[1])?.name || 'Empty'}</div>
+                                                    <div className="text-[10px] font-bold text-[#92400e] uppercase">{CH3_WEAPONS.find(w => w.id === ch3LoadoutUI[1])?.type || 'Select a weapon'}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-4">
+                                    <button
+                                        onClick={() => startGame(3, ch3LastBossDefeated.current)}
+                                        className="w-full py-6 bg-red-600 hover:bg-red-500 text-white font-black text-4xl rounded-3xl border-b-[10px] border-red-900 active:border-b-0 active:translate-y-2 transition-all shadow-2xl"
+                                        style={{ textShadow: '3px 3px 0px #000' }}
+                                    >
+                                        READY! GO!
+                                    </button>
+                                    <button
+                                        onClick={() => setUiState(GameState.CH3_SHOP)}
+                                        className="text-center font-black text-[#14532d] hover:underline"
+                                    >
+                                        GO BACK TO SHOP
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 };
