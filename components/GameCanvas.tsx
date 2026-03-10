@@ -3,7 +3,7 @@ import { GameState, BossType, Player, Boss, Bullet, Particle, Vector2, Upgrade, 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX, CH3_BOSS_CONFIGS, CH3_WEAPONS, CH3_PHYSICS } from '../constants';
 import { Rocket, Skull, Shield, Zap, Heart, RefreshCw, Crosshair, AlertTriangle, Lock, Unlock, Plus, Database, Target, Cpu, ArrowUpCircle, Ghost } from 'lucide-react';
 
-const useInput = () => {
+const useInput = (canvasRef: React.RefObject<HTMLCanvasElement>) => {
     const keys = useRef<Set<string>>(new Set());
     const mouse = useRef<Vector2>({ x: 0, y: 0 });
     const mouseDown = useRef(false);
@@ -24,10 +24,24 @@ const useInput = () => {
             e.preventDefault();
         };
 
+        const handleMouseMove = (e: MouseEvent) => {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = CANVAS_WIDTH / rect.width;
+                const scaleY = CANVAS_HEIGHT / rect.height;
+                mouse.current = {
+                    x: (e.clientX - rect.left) * scaleX,
+                    y: (e.clientY - rect.top) * scaleY
+                };
+            }
+        };
+
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
         window.addEventListener('mousedown', handleMouseDown);
         window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('contextmenu', handleContextMenu);
 
         return () => {
@@ -35,6 +49,7 @@ const useInput = () => {
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousedown', handleMouseDown);
             window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('contextmenu', handleContextMenu);
         };
     }, []);
@@ -44,7 +59,7 @@ const useInput = () => {
 
 export const GameCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const { keys, mouseDown, rightMouseDown } = useInput();
+    const { keys, mouseDown, rightMouseDown } = useInput(canvasRef);
 
     // Game State Refs
     const gameState = useRef<GameState>(GameState.MENU);
@@ -94,7 +109,7 @@ export const GameCanvas: React.FC = () => {
     const currentChapter = useRef<number>(1); // 1, 2, or 3
     const ch3Coins = useRef<number>(0);
     const ch3WeaponsOwned = useRef<number[]>([1]); // Weapon IDs from CH3_WEAPONS
-    const ch3Loadout = useRef<number[]>([1, -1, -1]); // Indices/IDs of equipped weapons
+    const ch3Loadout = useRef<number[]>([1, -1]); // Indices/IDs of equipped weapons (Slot A, Slot B)
     const ch3LastBossDefeated = useRef<number>(0);
 
     const boss = useRef<Boss | null>(null);
@@ -171,32 +186,52 @@ export const GameCanvas: React.FC = () => {
 
     useEffect(() => {
         // Check persistence
-        const ph2Unlocked = localStorage.getItem('boss_rush_phase2_unlocked') === 'true';
-        if (ph2Unlocked) setUnlockedChapters(prev => prev.includes(2) ? prev : [...prev, 2]);
+        try {
+            const ph2Unlocked = localStorage.getItem('boss_rush_phase2_unlocked') === 'true';
+            if (ph2Unlocked) {
+                setPhase2Unlocked(true);
+                setUnlockedChapters(prev => prev.includes(2) ? prev : [...prev, 2]);
+            }
 
-        const ch3CoinsStore = localStorage.getItem('chapter3_coins');
-        if (ch3CoinsStore) {
-            ch3Coins.current = parseInt(ch3CoinsStore);
-            setCh3CoinsUI(ch3Coins.current);
-        }
+            const ch3Unlocked = localStorage.getItem('boss_rush_chapter3_unlocked') === 'true';
+            if (ch3Unlocked) {
+                setChapter3Unlocked(true);
+                setUnlockedChapters(prev => prev.includes(3) ? prev : [...prev, 3]);
+            }
 
-        const ch3OwnedStore = localStorage.getItem('chapter3_weapons_owned');
-        if (ch3OwnedStore) {
-            ch3WeaponsOwned.current = JSON.parse(ch3OwnedStore);
-            setCh3OwnedUI(ch3WeaponsOwned.current);
-        }
+            const ch3CoinsStore = localStorage.getItem('chapter3_coins');
+            if (ch3CoinsStore) {
+                ch3Coins.current = parseInt(ch3CoinsStore) || 0;
+                setCh3CoinsUI(ch3Coins.current);
+            }
 
-        const ch3LoadoutStore = localStorage.getItem('chapter3_loadout');
-        if (ch3LoadoutStore) {
-            ch3Loadout.current = JSON.parse(ch3LoadoutStore);
-            setCh3LoadoutUI(ch3Loadout.current);
-        }
+            const ch3OwnedStore = localStorage.getItem('chapter3_weapons_owned');
+            if (ch3OwnedStore) {
+                const parsed = JSON.parse(ch3OwnedStore);
+                if (Array.isArray(parsed)) {
+                    ch3WeaponsOwned.current = parsed;
+                    setCh3OwnedUI(ch3WeaponsOwned.current);
+                }
+            }
 
-        const ch3CheckpointStore = localStorage.getItem('chapter3_checkpoint');
-        if (ch3CheckpointStore) {
-            const cp = JSON.parse(ch3CheckpointStore);
-            ch3LastBossDefeated.current = cp.lastBossDefeated;
-            setUnlockedChapters(prev => prev.includes(3) ? prev : [...prev, 3]);
+            const ch3LoadoutStore = localStorage.getItem('chapter3_loadout');
+            if (ch3LoadoutStore) {
+                const parsed = JSON.parse(ch3LoadoutStore);
+                if (Array.isArray(parsed)) {
+                    ch3Loadout.current = parsed.slice(0, 2);
+                    setCh3LoadoutUI(ch3Loadout.current);
+                }
+            }
+
+            const ch3CheckpointStore = localStorage.getItem('chapter3_checkpoint');
+            if (ch3CheckpointStore) {
+                const cp = JSON.parse(ch3CheckpointStore);
+                if (cp && typeof cp.lastBossDefeated === 'number') {
+                    ch3LastBossDefeated.current = cp.lastBossDefeated;
+                }
+            }
+        } catch (e) {
+            console.error("Save data corrupted, resetting to defaults", e);
         }
     }, []);
 
@@ -398,6 +433,9 @@ export const GameCanvas: React.FC = () => {
         bullets.current = [];
         particles.current = [];
         frameCount.current = 0;
+        shakeIntensity.current = 0;
+        hudGlitch.current = 0;
+        ch2GlitchIntensity.current = 0;
 
         initBoss(currentBossIndex.current);
 
@@ -1835,7 +1873,7 @@ export const GameCanvas: React.FC = () => {
         if (currentBossIndex.current >= BOSS_CONFIGS.length) {
             gameState.current = GameState.VICTORY;
             setUiState(GameState.VICTORY);
-            unlockPhase2(); // Unlock Chapter 2
+            unlockChapter(2); // Unlock Chapter 2
         } else {
             if (currentBossIndex.current >= 5) {
                 // Reset ch2 dynamic state for the next boss
@@ -1858,9 +1896,16 @@ export const GameCanvas: React.FC = () => {
         }
     };
 
-    const unlockPhase2 = () => {
-        setPhase2Unlocked(true);
-        localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+    const unlockChapter = (chapter: number) => {
+        if (chapter === 2) {
+            setPhase2Unlocked(true);
+            localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+            setUnlockedChapters(prev => prev.includes(2) ? prev : [...prev, 2]);
+        } else if (chapter === 3) {
+            setChapter3Unlocked(true);
+            localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+            setUnlockedChapters(prev => prev.includes(3) ? prev : [...prev, 3]);
+        }
     };
 
     const handleAdminLogin = () => {
@@ -2474,7 +2519,7 @@ export const GameCanvas: React.FC = () => {
 
                         let damageDealt = b.damage;
                         if (boss.current.freezeTimer > 0) damageDealt *= 2;
-                        boss.current.hp -= damageDealt;
+                        boss.current.hp = Math.max(0, boss.current.hp - damageDealt);
                         spawnParticles(b.pos, b.color, 2, 3);
 
                         if (b.clusterCount && b.clusterCount > 0) {
@@ -2534,14 +2579,12 @@ export const GameCanvas: React.FC = () => {
 
             // Unlock Chapter 2
             if (isCh1Boss5) {
-                setPhase2Unlocked(true);
-                localStorage.setItem('boss_rush_phase2_unlocked', 'true');
+                unlockChapter(2);
             }
 
             // Unlock Chapter 3
             if (isCh2Boss5) {
-                setChapter3Unlocked(true);
-                localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+                unlockChapter(3);
             }
 
             if (isCh3) {
@@ -3627,6 +3670,53 @@ export const GameCanvas: React.FC = () => {
                     </div>
                 )}
 
+                {uiState === GameState.UPGRADING && (
+                    <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-md z-50 p-8">
+                        <div className="mb-12 text-center animate-[fadeIn_0.5s_ease-out]">
+                            <h2 className="text-4xl font-black text-cyan-400 tracking-[0.3em] uppercase drop-shadow-[0_0_15px_rgba(34,211,238,0.5)] mb-2">
+                                System Evolution
+                            </h2>
+                            <div className="h-1 w-64 bg-cyan-900 mx-auto"></div>
+                            <p className="text-slate-400 mt-4 font-mono text-sm tracking-widest italic">CHOOSE AN AUGMENTATION TO PROCEED</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
+                            {availableUpgrades.map((upg, idx) => (
+                                <button
+                                    key={upg.id}
+                                    onClick={() => selectUpgrade(upg)}
+                                    className="group relative bg-slate-900/80 border-2 border-slate-800 p-6 rounded-xl flex flex-col items-center text-center hover:border-cyan-500 hover:bg-slate-800 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-[slideUp_0.5s_ease-out] fill-mode-forwards"
+                                    style={{ animationDelay: `${idx * 0.1}s` }}
+                                >
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-cyan-400 group-hover:border-cyan-500/50 transition-colors">
+                                        {upg.rarity}
+                                    </div>
+
+                                    <div className="w-16 h-16 bg-slate-950 rounded-full border-2 border-slate-800 flex items-center justify-center mb-6 group-hover:border-cyan-500 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.1)] transition-all">
+                                        {getUpgradeIcon(upg.id, 32)}
+                                    </div>
+
+                                    <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight group-hover:text-cyan-400 transition-colors">
+                                        {upg.name}
+                                    </h3>
+
+                                    <div className="text-xs text-slate-400 font-medium leading-relaxed mb-6 group-hover:text-slate-300 transition-colors h-12 flex items-center">
+                                        {upg.description || "Experimental protocol augmentation."}
+                                    </div>
+
+                                    <div className="mt-auto w-full py-2 bg-slate-950 rounded font-bold text-[10px] text-cyan-600 uppercase tracking-widest border border-cyan-900 group-hover:bg-cyan-600 group-hover:text-white transition-all">
+                                        Install Protocol
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="mt-12 text-slate-600 font-mono text-[10px] uppercase tracking-tighter animate-pulse">
+                            Hardware synchronization in progress... 98%
+                        </div>
+                    </div>
+                )}
+
                 {uiState === GameState.MENU && (
                     <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center pointer-events-auto backdrop-blur-sm z-50">
                         <h1 className="text-6xl font-black text-white tracking-tighter mb-2" style={{ textShadow: '4px 4px 0px #ef4444' }}>
@@ -3784,10 +3874,8 @@ export const GameCanvas: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={() => {
-                                            setPhase2Unlocked(true);
-                                            setChapter3Unlocked(true);
-                                            localStorage.setItem('boss_rush_phase2_unlocked', 'true');
-                                            localStorage.setItem('boss_rush_chapter3_unlocked', 'true');
+                                            unlockChapter(2);
+                                            unlockChapter(3);
                                         }}
                                         className="w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-green-900/20 flex items-center justify-center gap-2 mt-2"
                                     >
