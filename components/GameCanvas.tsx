@@ -3848,7 +3848,7 @@ export const GameCanvas: React.FC = () => {
                 )}
 
                 {uiState === GameState.CHAPTER_SELECT && (
-                    <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-8 z-50 overflow-y-auto">
+                    <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-8 z-50 overflow-y-auto pointer-events-auto">
                         <div className="relative mb-8">
                             <h2 className="text-5xl font-black text-white italic tracking-tighter flex items-center gap-4 drop-shadow-[0_2px_4px_rgba(34,211,238,0.5)]">
                                 <Target size={40} className="text-cyan-400 animate-pulse" /> MISSION SELECTION
