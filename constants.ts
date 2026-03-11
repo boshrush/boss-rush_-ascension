@@ -343,7 +343,12 @@ export const CH3_PHYSICS = {
   jumpPower: 10,
   groundY: 520,
   moveSpeed: 4.5,
-  terminalVelocity: 12
+  terminalVelocity: 12,
+  platforms: [
+    { x: 150, y: 380, w: 150, h: 20 },
+    { x: 500, y: 380, w: 150, h: 20 },
+    { x: 325, y: 250, w: 150, h: 20 }
+  ]
 };
 
 export const CH3_WEAPONS: CH3Weapon[] = [

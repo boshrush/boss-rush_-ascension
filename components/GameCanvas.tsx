@@ -1235,7 +1235,8 @@ export const GameCanvas: React.FC = () => {
                 } else if (attackType === 1) {
                     // Honk Honk! (Fast Burst)
                     for (let i = 0; i < 8 + b.phase * 4; i++) {
-                        const angle = Math.PI + (i / 10) - 0.5;
+                        const targetAngle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                        const angle = targetAngle + (i / 10) - 0.5;
                         bullets.current.push({
                             pos: { x: b.pos.x - 30, y: b.pos.y },
                             vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
@@ -1264,10 +1265,16 @@ export const GameCanvas: React.FC = () => {
                     b.customState = 'IDLE';
                 }
             } else {
-                // Mortimer Hover AI: Drift towards player
-                const targetX = p.pos.x + 200;
-                b.pos.x += (targetX - b.pos.x) * 0.02;
-                b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.05) * 50;
+                // Mortimer Hover AI: Bounce around independently
+                if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.75, y: CANVAS_HEIGHT * 0.5 };
+                if (frameCount.current % 120 === 0) {
+                    b.targetPos = {
+                        x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 400)),
+                        y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, b.pos.y + (Math.random() - 0.5) * 300))
+                    };
+                }
+                b.pos.x += (b.targetPos.x - b.pos.x) * 0.02;
+                b.pos.y += (b.targetPos.y - b.pos.y) * 0.02;
             }
         }
 
@@ -1281,9 +1288,10 @@ export const GameCanvas: React.FC = () => {
                 if (attackType === 0) {
                     // Bats (Homing Sweep)
                     for (let i = 0; i < 3 + b.phase; i++) {
+                        const angle = Math.atan2(p.pos.y - (b.pos.y + (i - 1) * 50), p.pos.x - b.pos.x);
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y + (i - 1) * 50 },
-                            vel: { x: -10, y: 0 },
+                            vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
                             size: 12, color: '#000', isEnemy: true, damage: 15, lifetime: 120,
                             effect: 'HOMING_SOFT'
                         });
@@ -1300,16 +1308,24 @@ export const GameCanvas: React.FC = () => {
                     }
                 } else {
                     // Vampire Cloak Sweep
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
-                        pos: { x: b.pos.x, y: p.pos.y },
-                        vel: { x: -20, y: 0 },
-                        size: 80, color: 'rgba(127, 29, 29, 0.5)', isEnemy: true, damage: 25, lifetime: 40
+                        pos: { x: b.pos.x, y: b.pos.y },
+                        vel: { x: Math.cos(angle) * 20, y: Math.sin(angle) * 20 },
+                        size: 80, color: 'rgba(127, 29, 29, 0.5)', isEnemy: true, damage: 25, lifetime: 60
                     });
                 }
             }
-            // Vermillion AI: More vertical movement and slight tracking
-            b.pos.x += (p.pos.x + 150 - b.pos.x) * 0.01;
-            b.pos.y = CANVAS_HEIGHT * 0.4 + Math.cos(frameCount.current * 0.03) * 150;
+            // Vermillion AI: Swooping movement independent of player X
+            if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.8, y: CANVAS_HEIGHT * 0.3 };
+            if (frameCount.current % 90 === 0) {
+                b.targetPos = {
+                    x: Math.max(50, Math.min(CANVAS_WIDTH - 50, CANVAS_WIDTH * Math.random())),
+                    y: Math.max(50, Math.min(CANVAS_HEIGHT - 200, CANVAS_HEIGHT * Math.random()))
+                };
+            }
+            b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
+            b.pos.y += (b.targetPos.y - b.pos.y) * 0.015;
         }
 
         // --- BOSS 3: DR. VERDOLAGA (Botanist) ---
@@ -1325,18 +1341,21 @@ export const GameCanvas: React.FC = () => {
                         setTimeout(() => {
                             const isParry = i === 2 || i === 5;
                             if (!boss.current) return;
+                            const targetAngle = Math.atan2(p.pos.y - boss.current.pos.y, p.pos.x - boss.current.pos.x);
+                            const spread = (Math.random() - 0.5) * 0.5;
                             bullets.current.push({
                                 pos: { x: boss.current.pos.x, y: boss.current.pos.y },
-                                vel: { x: -10, y: (Math.random() - 0.5) * 6 },
+                                vel: { x: Math.cos(targetAngle + spread) * 10, y: Math.sin(targetAngle + spread) * 10 },
                                 size: isParry ? 15 : 10, color: isParry ? '#ff00ff' : '#16a34a', isEnemy: true, damage: 12, lifetime: 120, isParryable: isParry
                             });
                         }, i * 100);
                     }
                 } else if (attackType === 1) {
-                    // Toxic Gas (Large slow clouds)
+                    // Toxic Gas (Large slow clouds aimed at player)
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { x: b.pos.x, y: b.pos.y },
-                        vel: { x: -3, y: 0 },
+                        vel: { x: Math.cos(angle) * 3, y: Math.sin(angle) * 3 },
                         size: 100, color: 'rgba(34, 197, 94, 0.3)', isEnemy: true, damage: 5, lifetime: 200, effect: 'GAS'
                     });
                 } else {
@@ -1350,8 +1369,16 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
-            // Verdolaga AI: Move back and forth aggressively
-            b.pos.x = CANVAS_WIDTH * 0.7 + Math.sin(frameCount.current * 0.04) * 200;
+            // Verdolaga AI: Move back and forth aggressively but independently
+            if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.9, y: CANVAS_HEIGHT * 0.5 };
+            if (frameCount.current % 150 === 0) {
+                b.targetPos = {
+                    x: Math.max(200, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 500)),
+                    y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, CANVAS_HEIGHT * Math.random()))
+                };
+            }
+            b.pos.x += (b.targetPos.x - b.pos.x) * 0.02;
+            b.pos.y += (b.targetPos.y - b.pos.y) * 0.02;
         }
 
         // --- BOSS 4: CARAMELA LA HECHICERA (Candy Witch) ---
@@ -1372,10 +1399,11 @@ export const GameCanvas: React.FC = () => {
                         });
                     }
                 } else if (attackType === 1) {
-                    // Sticky Bubblegum
+                    // Sticky Bubblegum aimed at player
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { x: b.pos.x, y: b.pos.y },
-                        vel: { x: -12, y: 0 },
+                        vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
                         size: 40, color: '#f472b6', isEnemy: true, damage: 10, lifetime: 120, effect: 'SLOW_PLAYER'
                     });
                 } else {
@@ -1390,9 +1418,16 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
-            // Caramela AI: Glide towards player
-            b.pos.x += (p.pos.x + 100 - b.pos.x) * 0.015;
-            b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.08) * 150;
+            // Caramela AI: Glide smoothly on independent path
+            if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.8, y: CANVAS_HEIGHT * 0.5 };
+            if (frameCount.current % 60 === 0) {
+                b.targetPos = {
+                    x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 300)),
+                    y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, b.pos.y + (Math.random() - 0.5) * 300))
+                };
+            }
+            b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
+            b.pos.y += (b.targetPos.y - b.pos.y) * 0.015;
         }
 
         // --- BOSS 5: EL GRAN DIABLO SCRATCH (The Devil) ---
@@ -1412,10 +1447,11 @@ export const GameCanvas: React.FC = () => {
                 const attackType = Math.floor(Math.random() * 4);
 
                 if (attackType === 0) {
-                    // Pitchfork Thrust (Beam)
+                    // Pitchfork Thrust (Beam targeting player)
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
-                        pos: { x: b.pos.x, y: p.pos.y },
-                        vel: { x: -30, y: 0 },
+                        pos: { x: b.pos.x, y: b.pos.y },
+                        vel: { x: Math.cos(angle) * 30, y: Math.sin(angle) * 30 },
                         size: 70, color: 'rgba(127, 29, 29, 0.8)', isEnemy: true, damage: 40, lifetime: 30, effect: 'BEAM'
                     });
                 } else if (attackType === 1) {
@@ -1428,12 +1464,14 @@ export const GameCanvas: React.FC = () => {
                         });
                     }
                 } else if (attackType === 2) {
-                    // Demon Skulls (Homing)
+                    // Demon Skulls (Homing from spread to player)
+                    const baseAngle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     for (let i = 0; i < 3 + b.phase; i++) {
                         const isParry = i === 1;
+                        const spreadAngle = baseAngle + (i - (3 + b.phase) / 2) * 0.2;
                         bullets.current.push({
-                            pos: { x: b.pos.x, y: b.pos.y + (i - 1) * 80 },
-                            vel: { x: -8, y: 0 },
+                            pos: { x: b.pos.x, y: b.pos.y },
+                            vel: { x: Math.cos(spreadAngle) * 8, y: Math.sin(spreadAngle) * 8 },
                             size: 25, color: isParry ? '#ff00ff' : '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT', isParryable: isParry
                         });
                     }
@@ -1449,10 +1487,16 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
-            // Scratch AI: Variable positioning, can move closer
-            const scratchTargetX = p.pos.x + 150 + Math.sin(frameCount.current * 0.02) * 100;
-            b.pos.x += (scratchTargetX - b.pos.x) * 0.01;
-            b.pos.y = CANVAS_HEIGHT * 0.5 + Math.cos(frameCount.current * 0.05) * 100;
+            // Scratch AI: Variable independent positioning
+            if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.7, y: CANVAS_HEIGHT * 0.4 };
+            if (frameCount.current % 100 === 0) {
+                b.targetPos = {
+                    x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 400)),
+                    y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, CANVAS_HEIGHT * Math.random()))
+                };
+            }
+            b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
+            b.pos.y += (b.targetPos.y - b.pos.y) * 0.015;
         }
     };
 
@@ -2201,9 +2245,35 @@ export const GameCanvas: React.FC = () => {
         p.pos.x += p.vel.x;
         p.pos.y += p.vel.y;
 
-        // Ground Collision
+        // Platform Collision (Jump-Through from bottom)
+        // Allow dropping down by holding S or Down Arrow + playing
+        const isTryingToDrop = keys.current.has('KeyS') || keys.current.has('ArrowDown');
+
+        let landedOnPlatform = false;
+        if (p.vel.y > 0 && !isTryingToDrop) {
+            for (const plat of physics.platforms) {
+                // Check if player's bottom edge crossed the platform's top edge
+                const prevY = p.pos.y - p.vel.y;
+                const bottomY = p.pos.y + p.size;
+                const prevBottomY = prevY + p.size;
+
+                if (prevBottomY <= plat.y && bottomY >= plat.y) {
+                    // Check horizontal bounds (with a slight forgiving edge)
+                    if (p.pos.x + p.size > plat.x && p.pos.x - p.size < plat.x + plat.w) {
+                        p.pos.y = plat.y - p.size;
+                        p.vel.y = 0;
+                        p.ch3Grounded = true;
+                        p.ch3Jumping = false;
+                        landedOnPlatform = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Ground Collision (Floor)
         const floorY = physics.groundY;
-        if (p.pos.y >= floorY - p.size) {
+        if (!landedOnPlatform && p.pos.y >= floorY - p.size) {
             p.pos.y = floorY - p.size;
             p.vel.y = 0;
             p.ch3Grounded = true;
@@ -2695,14 +2765,9 @@ export const GameCanvas: React.FC = () => {
             const isCh3 = currentChapter.current === 3;
 
             // Unlock Chapter 2
-            if (isCh1Boss5) {
-                unlockChapter(2);
-            }
-
+            if (isCh1Boss5) unlockChapter(2);
             // Unlock Chapter 3
-            if (isCh2Boss5) {
-                unlockChapter(3);
-            }
+            if (isCh2Boss5) unlockChapter(3);
 
             if (isCh3) {
                 // Award coins from boss reward
@@ -2713,7 +2778,7 @@ export const GameCanvas: React.FC = () => {
 
                 // Update checkpoint
                 const currentReached = currentBossIndex.current + 1; // 1-indexed for the checkpoint log
-                if (currentReached > ch3LastBossDefeated.current) {
+                if (currentReached > ch3LastBossDefeated.current && currentReached <= 14) {
                     ch3LastBossDefeated.current = currentReached;
                     localStorage.setItem("chapter3_checkpoint", JSON.stringify({
                         lastBossDefeated: ch3LastBossDefeated.current,
@@ -2727,16 +2792,24 @@ export const GameCanvas: React.FC = () => {
             }
 
             const isFinalBoss = (currentChapter.current === 1 && currentBossIndex.current === 4) ||
-                (currentChapter.current === 2 && currentBossIndex.current === 9);
+                (currentChapter.current === 2 && currentBossIndex.current === 9) ||
+                (currentChapter.current === 3 && currentBossIndex.current === 14);
+
             boss.current = null;
 
             if (isCh1Boss5) {
                 setTimeout(() => { startGame(2, 5); }, 2000);
             } else if (isCh3) {
-                setTimeout(() => {
-                    setUiState(GameState.CH3_SHOP);
-                    gameState.current = GameState.CH3_SHOP;
-                }, 1500);
+                // Determine if we should go to the next boss or show victory
+                if (!isFinalBoss) {
+                    currentBossIndex.current++;
+                    setTimeout(() => { initBoss(); }, 1500); // Spawn next boss
+                } else {
+                    setTimeout(() => {
+                        setUiState(GameState.CH3_SHOP); // Or Victory Screen based on design
+                        gameState.current = GameState.CH3_SHOP;
+                    }, 1500);
+                }
             } else if (isFinalBoss && currentChapter.current === 2) {
                 // Chapter 2 final victory
                 setTimeout(() => {
@@ -2963,6 +3036,25 @@ export const GameCanvas: React.FC = () => {
             ctx.strokeStyle = '#ef4444';
             ctx.lineWidth = 4;
             ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        // --- CH3 PLATFORMS ---
+        if (currentChapter.current === 3) {
+            ctx.fillStyle = '#451a03'; // Dark brown base
+            ctx.strokeStyle = '#000';  // Cartoon outline
+            ctx.lineWidth = 4;
+            ctx.lineJoin = 'round';
+            for (const plat of CH3_PHYSICS.platforms) {
+                // Draw platform box
+                ctx.beginPath();
+                ctx.rect(plat.x, plat.y, plat.w, plat.h);
+                ctx.fill();
+                ctx.stroke();
+
+                // Draw a lighter top edge for 3D/Cartoon effect
+                ctx.fillStyle = '#d97706';
+                ctx.fillRect(plat.x + 2, plat.y + 2, plat.w - 4, 6);
+            }
         }
 
         // --- PLAYER ---
