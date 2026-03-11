@@ -308,6 +308,8 @@ export const GameCanvas: React.FC = () => {
             attackTimer: 0,
             state: 'IDLE',
             angle: 0,
+            vel: { x: 0, y: 0 },
+            customState: 'IDLE',
             name: config.name,
             description: config.description || "A formidable foe.",
             reward: config.reward || 0,
@@ -2380,8 +2382,10 @@ export const GameCanvas: React.FC = () => {
                 const turnSpeed = 0.05;
                 const currentAngle = Math.atan2(b.vel.y, b.vel.x);
                 let diff = angle - currentAngle;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                while (diff > Math.PI) diff -= Math.PI * 2;
+                let safety = 0;
+                while (diff < -Math.PI && safety < 10) { diff += Math.PI * 2; safety++; }
+                safety = 0;
+                while (diff > Math.PI && safety < 10) { diff -= Math.PI * 2; safety++; }
                 const newAngle = currentAngle + diff * turnSpeed;
                 const speed = Math.sqrt(b.vel.x ** 2 + b.vel.y ** 2);
                 b.vel.x = Math.cos(newAngle) * speed;
