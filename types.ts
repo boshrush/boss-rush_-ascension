@@ -104,6 +104,9 @@ export interface Player extends Entity {
   ch3Coins?: number;
   ch3WeaponIdsOwned?: number[];
   ch3Loadout?: number[]; // indices into CH3_WEAPONS (max 3)
+  parryTimer?: number;
+  parryCooldown?: number;
+  lastCh3Facing?: number;
 }
 
 export interface Boss extends Entity {
@@ -170,6 +173,7 @@ export interface Bullet extends Entity {
   bounces?: number;
   maxBounces?: number;
   isMissile?: boolean;
+  isParryable?: boolean;
 }
 
 export interface Particle extends Entity {

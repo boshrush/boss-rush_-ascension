@@ -103,7 +103,8 @@ export const GameCanvas: React.FC = () => {
         // Chapter 3 Specific
         ch3Grounded: true,
         ch3Jumping: false,
-        ch3Crouching: false
+        ch3Crouching: false,
+        parryTimer: 0
     });
 
     const currentChapter = useRef<number>(1); // 1, 2, or 3
@@ -324,7 +325,7 @@ export const GameCanvas: React.FC = () => {
     const startGame = (chapter: number = 1, startIdx: number = 0) => {
         let finalStartIdx = startIdx;
         if (chapter === 2 && startIdx < 5) finalStartIdx = 5;
-        if (chapter === 3 && startIdx >= 5) finalStartIdx = 0; // Chapter 3 has its own config
+        if (chapter === 3) finalStartIdx = 0; // Chapter 3 ALWAYS starts from the beginning
 
         currentChapter.current = chapter;
         currentBossIndex.current = finalStartIdx;
@@ -404,6 +405,7 @@ export const GameCanvas: React.FC = () => {
             ch3Grounded: true,
             ch3Jumping: false,
             ch3Crouching: false,
+            parryTimer: 0,
             playAreaScale: 1.0
         };
 
@@ -449,10 +451,9 @@ export const GameCanvas: React.FC = () => {
         setUiState(GameState.PLAYING);
     };
 
-    const fireCh3Weapon = () => {
+    const fireCh3Weapon = (slotIdx: number = 0) => {
         const p = player.current;
         const b = boss.current;
-        const slotIdx = selectedCh3Slot.current;
         const weaponId = ch3Loadout.current[slotIdx];
 
         if (weaponId === -1 || p.shootCooldown > 0) return;
@@ -1223,11 +1224,12 @@ export const GameCanvas: React.FC = () => {
                 if (attackType === 0) {
                     // Juggling Balls (Arcing Falling)
                     for (let i = 0; i < (b.phase * 3) + 2; i++) {
+                        const isParry = i % 3 === 0;
                         bullets.current.push({
                             pos: { x: b.pos.x - 50, y: b.pos.y - 100 },
                             vel: { x: -3 - Math.random() * 8, y: -5 - Math.random() * 10 },
-                            size: 15, color: i % 2 === 0 ? '#ef4444' : '#3b82f6',
-                            isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY'
+                            size: 15, color: isParry ? '#ff00ff' : (i % 2 === 0 ? '#ef4444' : '#3b82f6'),
+                            isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY', isParryable: isParry
                         });
                     }
                 } else if (attackType === 1) {
@@ -1289,10 +1291,11 @@ export const GameCanvas: React.FC = () => {
                 } else if (attackType === 1) {
                     // Blood Wine (Parabolic Drops)
                     for (let i = 0; i < 15; i++) {
+                        const isParry = i % 4 === 0;
                         bullets.current.push({
                             pos: { x: b.pos.x - Math.random() * 400, y: -20 },
                             vel: { x: 0, y: 5 + Math.random() * 5 },
-                            size: 8, color: '#991b1b', isEnemy: true, damage: 10, lifetime: 150
+                            size: isParry ? 12 : 8, color: isParry ? '#ff00ff' : '#991b1b', isEnemy: true, damage: 10, lifetime: 150, isParryable: isParry
                         });
                     }
                 } else {
@@ -1320,10 +1323,12 @@ export const GameCanvas: React.FC = () => {
                     // Seed Spitting (Multi-shot)
                     for (let i = 0; i < 5 + b.phase * 2; i++) {
                         setTimeout(() => {
+                            const isParry = i === 2 || i === 5;
+                            if (!boss.current) return;
                             bullets.current.push({
-                                pos: { x: b.pos.x, y: b.pos.y },
+                                pos: { x: boss.current.pos.x, y: boss.current.pos.y },
                                 vel: { x: -10, y: (Math.random() - 0.5) * 6 },
-                                size: 10, color: '#16a34a', isEnemy: true, damage: 12, lifetime: 120
+                                size: isParry ? 15 : 10, color: isParry ? '#ff00ff' : '#16a34a', isEnemy: true, damage: 12, lifetime: 120, isParryable: isParry
                             });
                         }, i * 100);
                     }
@@ -1359,10 +1364,11 @@ export const GameCanvas: React.FC = () => {
                 if (attackType === 0) {
                     // Candy Rain (Parabolic)
                     for (let i = 0; i < 10 + b.phase * 5; i++) {
+                        const isParry = i % 5 === 0;
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y },
                             vel: { x: -5 - Math.random() * 10, y: -10 - Math.random() * 5 },
-                            size: 10, color: `hsl(${Math.random() * 360}, 70%, 70%)`, isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY'
+                            size: isParry ? 15 : 10, color: isParry ? '#ff00ff' : `hsl(${Math.random() * 360}, 70%, 70%)`, isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY', isParryable: isParry
                         });
                     }
                 } else if (attackType === 1) {
@@ -1424,10 +1430,11 @@ export const GameCanvas: React.FC = () => {
                 } else if (attackType === 2) {
                     // Demon Skulls (Homing)
                     for (let i = 0; i < 3 + b.phase; i++) {
+                        const isParry = i === 1;
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y + (i - 1) * 80 },
                             vel: { x: -8, y: 0 },
-                            size: 25, color: '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT'
+                            size: 25, color: isParry ? '#ff00ff' : '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT', isParryable: isParry
                         });
                     }
                 } else {
@@ -2160,6 +2167,21 @@ export const GameCanvas: React.FC = () => {
             p.size = 20; // Normal hit box
         }
 
+        // Parry Logic
+        if (p.parryCooldown && p.parryCooldown > 0) p.parryCooldown--;
+        if (p.parryTimer && p.parryTimer > 0) {
+            p.parryTimer--;
+            if (frameCount.current % 3 === 0) spawnParticles(p.pos, '#fbcfe8', 2, 2); // Pink Sparkles
+        }
+
+        if (keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')) {
+            if ((!p.parryCooldown || p.parryCooldown <= 0) && (!p.parryTimer || p.parryTimer <= 0)) {
+                p.parryTimer = 15; // 15 frames of parry window
+                p.parryCooldown = 60; // 1 second cooldown
+                spawnParticles(p.pos, '#ec4899', 15, 4); // Parry start burst
+            }
+        }
+
         // Jump (Only Space for Chapter 3 as requested)
         const wantsToJump = keys.current.has('Space');
         if (wantsToJump && p.ch3Grounded && !p.ch3Crouching && !p.ch3Jumping) {
@@ -2282,49 +2304,23 @@ export const GameCanvas: React.FC = () => {
         if (p.shootCooldown > 0) p.shootCooldown--;
 
         // Shooting Logic
-        if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ') || keys.current.has('KeyZ')) && p.shootCooldown <= 0 && !p.isCharging) {
+        if (!p.isSoulMode && p.shootCooldown <= 0 && !p.isCharging) {
             if (currentChapter.current === 3) {
-                // Directional Shooting for Chapter 3
-                let shootDirX = p.lastCh3Facing || 1;
-                let shootDirY = 0;
-
-                // Vertical Aiming
-                if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) {
-                    shootDirY = -1;
-                    // If holding UP but no horizontal move keys, can shoot strictly UP
-                    if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) {
-                        shootDirX = 0;
-                    }
-                } else if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) {
-                    shootDirY = 1;
-                    if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) {
-                        shootDirX = 0;
-                    }
+                if (mouseDown.current || keys.current.has('KeyJ')) {
+                    fireCh3Weapon(0);
+                    p.shootCooldown = PLAYER_BASE_STATS.fireRate;
+                } else if (rightMouseDown.current || keys.current.has('KeyK')) {
+                    fireCh3Weapon(1);
+                    p.shootCooldown = PLAYER_BASE_STATS.fireRate;
                 }
-
-                // Normalize direction
-                const mag = Math.sqrt(shootDirX * shootDirX + shootDirY * shootDirY) || 1;
-                const vx = (shootDirX / mag) * p.projectileSpeed;
-                const vy = (shootDirY / mag) * p.projectileSpeed;
-
-                const bulletY = p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15;
-                const bulletX = p.pos.x + (shootDirX * 25);
-
-                bullets.current.push({
-                    pos: { x: bulletX, y: bulletY },
-                    vel: { x: vx, y: vy },
-                    size: p.projectileSize, color: '#facc15', isEnemy: false, damage: p.damage, lifetime: 120,
-                    effect: 'CARTOON_HIT'
-                });
-                spawnParticles({ x: bulletX, y: bulletY }, '#fff', 2, 3);
-            } else {
+            } else if (mouseDown.current || keys.current.has('KeyJ') || keys.current.has('KeyZ')) {
                 // Top-down shooting for Chapters 1 & 2
                 bullets.current.push({
                     pos: { x: p.pos.x, y: p.pos.y - 10 }, vel: { x: 0, y: -p.projectileSpeed },
                     size: p.projectileSize, color: COLORS.playerBullet, isEnemy: false, damage: p.damage, lifetime: 100
                 });
+                p.shootCooldown = PLAYER_BASE_STATS.fireRate;
             }
-            p.shootCooldown = PLAYER_BASE_STATS.fireRate;
         }
 
         if (currentChapter.current === 3 && keys.current.has('KeyQ')) {
@@ -2596,7 +2592,19 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
 
-                if (hit && blockedByShield) {
+                let parried = false;
+                if (hit && b.isParryable && p.parryTimer && p.parryTimer > 0) {
+                    parried = true;
+                    spawnParticles(b.pos, '#f0abfc', 20, 6); // Magenta explosion
+                    shakeIntensity.current = Math.max(shakeIntensity.current, 10);
+                    p.invincibilityTimer = 60; // Reward: 1s iframes
+                    if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 5); // Reward: minor heal
+                    if (!b.piercing) { bullets.current.splice(i, 1); continue; }
+                }
+
+                if (parried) {
+                    // Collision handled by parry
+                } else if (hit && blockedByShield) {
                     spawnParticles(b.pos, '#22c55e', 5, 2);
                     if (!b.piercing) { bullets.current.splice(i, 1); continue; }
                 } else if (hit && canHit && !blockedByShield) {
