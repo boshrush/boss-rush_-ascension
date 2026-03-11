@@ -320,8 +320,12 @@ export const GameCanvas: React.FC = () => {
     };
 
     const startGame = (chapter: number = 1, startIdx: number = 0) => {
+        let finalStartIdx = startIdx;
+        if (chapter === 2 && startIdx < 5) finalStartIdx = 5;
+        if (chapter === 3 && startIdx >= 5) finalStartIdx = 0; // Chapter 3 has its own config
+
         currentChapter.current = chapter;
-        currentBossIndex.current = startIdx;
+        currentBossIndex.current = finalStartIdx;
 
         ch1SecondarySeenCount.current = 0;
         let nextUpgrades = [...collectedUpgrades];
@@ -1870,10 +1874,19 @@ export const GameCanvas: React.FC = () => {
         upgrade.apply(player.current);
 
         currentBossIndex.current += 1;
-        if (currentBossIndex.current >= BOSS_CONFIGS.length) {
-            gameState.current = GameState.VICTORY;
-            setUiState(GameState.VICTORY);
-            unlockChapter(2); // Unlock Chapter 2
+        const isChapterEnd = (currentChapter.current === 1 && currentBossIndex.current === 5) ||
+            (currentChapter.current === 2 && currentBossIndex.current === 10);
+
+        if (isChapterEnd) {
+            if (currentChapter.current === 2) {
+                gameState.current = GameState.VICTORY;
+                setUiState(GameState.VICTORY);
+                unlockChapter(3);
+            } else {
+                // Transition will be handled by the update loop timeout
+                gameState.current = GameState.MENU;
+                setUiState(GameState.MENU);
+            }
         } else {
             if (currentBossIndex.current >= 5) {
                 // Reset ch2 dynamic state for the next boss
@@ -2574,7 +2587,7 @@ export const GameCanvas: React.FC = () => {
             spawnParticles(boss.current.pos, boss.current.color, 100, 15);
 
             const isCh1Boss5 = currentChapter.current === 1 && currentBossIndex.current === 4;
-            const isCh2Boss5 = currentChapter.current === 2 && currentBossIndex.current === 4;
+            const isCh2Boss5 = currentChapter.current === 2 && currentBossIndex.current === 9;
             const isCh3 = currentChapter.current === 3;
 
             // Unlock Chapter 2
@@ -2609,11 +2622,12 @@ export const GameCanvas: React.FC = () => {
                 // Show "¡SUPERADO!" seal animation trigger would go here
             }
 
-            const isFinalBoss = currentBossIndex.current === 4;
+            const isFinalBoss = (currentChapter.current === 1 && currentBossIndex.current === 4) ||
+                (currentChapter.current === 2 && currentBossIndex.current === 9);
             boss.current = null;
 
             if (isCh1Boss5) {
-                setTimeout(() => { startGame(2); }, 2000);
+                setTimeout(() => { startGame(2, 5); }, 2000);
             } else if (isCh3) {
                 setTimeout(() => {
                     setUiState(GameState.CH3_SHOP);
@@ -3988,7 +4002,7 @@ export const GameCanvas: React.FC = () => {
 
                                 <div className="flex flex-col gap-2 w-full mt-auto">
                                     <button
-                                        onClick={() => startGame(2, 0)}
+                                        onClick={() => startGame(2, 5)}
                                         disabled={!phase2Unlocked}
                                         className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all shadow-lg active:translate-y-1"
                                     >
@@ -3998,7 +4012,7 @@ export const GameCanvas: React.FC = () => {
                                         {[0, 1, 2, 3, 4].map(idx => (
                                             <button
                                                 key={idx}
-                                                onClick={() => startGame(2, idx)}
+                                                onClick={() => startGame(2, idx + 5)}
                                                 disabled={!phase2Unlocked}
                                                 className="py-1.5 bg-slate-800 hover:bg-purple-900 text-[10px] font-bold text-purple-300 rounded border border-purple-900/30"
                                             >
