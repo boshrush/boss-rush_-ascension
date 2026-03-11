@@ -158,6 +158,9 @@ export interface Bullet extends Entity {
   isDrone?: boolean;
   droneSticky?: boolean;
   clusterCount?: number;
+  canSplit?: boolean;
+  hasGravity?: boolean;
+  ch3PlatformId?: number; // To track which platform we are on
 
   // Phase 2 / Azathoth / Judge Patterns
   isSafeZone?: boolean;

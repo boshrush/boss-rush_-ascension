@@ -481,7 +481,7 @@ export const GameCanvas: React.FC = () => {
 
         switch (weapon.effect) {
             case 'NORMAL':
-                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120 });
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120, canSplit: true });
                 break;
             case 'DOUBLE':
                 bullets.current.push({
@@ -1205,15 +1205,15 @@ export const GameCanvas: React.FC = () => {
 
         // --- MELEE PARRY ORB ---
         // If boss gets too close, occasionally spawn a melee orb to parry-jump away
-        if (frameCount.current % 120 === 0) {
+        if (frameCount.current % 80 === 0) {
             const dx = p.pos.x - b.pos.x;
             const dy = p.pos.y - b.pos.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < 180) {
+            if (dist < 220) {
                 bullets.current.push({
                     pos: { x: b.pos.x + dx * 0.5, y: b.pos.y + dy * 0.5 },
                     vel: { x: 0, y: 0 },
-                    size: 30, color: '#ff00ff', isEnemy: true, damage: 15, lifetime: 80,
+                    size: 35, color: '#ff00ff', isEnemy: true, damage: 0, lifetime: 90,
                     isParryable: true, effect: 'MELEE_ORB'
                 });
             }
@@ -2261,12 +2261,31 @@ export const GameCanvas: React.FC = () => {
         p.pos.x += p.vel.x;
         p.pos.y += p.vel.y;
 
+        // Wall Collision
+        p.pos.x = Math.max(p.size, Math.min(CANVAS_WIDTH - p.size, p.pos.x));
+
+        // Grounded check (Floor or Platform)
+        if (p.ch3Grounded) {
+            const onFloor = p.pos.y >= physics.groundY - p.size - 2;
+            let onPlatform = false;
+            for (const plat of physics.platforms) {
+                if (Math.abs(p.pos.y + p.size - plat.y) < 5 &&
+                    p.pos.x + p.size > plat.x && p.pos.x - p.size < plat.x + plat.w) {
+                    onPlatform = true;
+                    break;
+                }
+            }
+            if (!onFloor && !onPlatform) {
+                p.ch3Grounded = false;
+            }
+        }
+
         // Platform Collision (Jump-Through from bottom)
-        // Allow dropping down by holding S or Down Arrow + playing
+        // Allow dropping down by holding S or Down Arrow
         const isTryingToDrop = keys.current.has('KeyS') || keys.current.has('ArrowDown');
 
         let landedOnPlatform = false;
-        if (p.vel.y > 0 && !isTryingToDrop) {
+        if (p.vel.y >= 0 && !isTryingToDrop) {
             for (const plat of physics.platforms) {
                 // Check if player's bottom edge crossed the platform's top edge
                 const prevY = p.pos.y - p.vel.y;
@@ -2451,6 +2470,34 @@ export const GameCanvas: React.FC = () => {
 
         for (let i = bullets.current.length - 1; i >= 0; i--) {
             const b = bullets.current[i];
+
+            // --- CHAPTER 3 BULLET PHYSICS ---
+            if (currentChapter.current === 3 && !b.isEnemy) {
+                // Sky Fall: Shots high up or moving up eventually fall
+                if (b.pos.y < 150 || b.vel.y < 0) {
+                    b.vel.y += 0.15;
+                }
+
+                // Normal Split: Normal shots split into two after a few frames
+                if (b.canSplit && b.lifetime === 90) { // Splitting after travel
+                    b.canSplit = false;
+                    const angle = Math.atan2(b.vel.y, b.vel.x);
+                    const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
+
+                    // Add two angled off-shoots (30 degrees each side)
+                    const spread = 0.5;
+                    bullets.current.push({
+                        ...b, pos: { ...b.pos }, vel: { x: Math.cos(angle + spread) * speed, y: Math.sin(angle + spread) * speed },
+                        size: b.size * 0.7, damage: b.damage * 0.6, canSplit: false
+                    });
+                    bullets.current.push({
+                        ...b, pos: { ...b.pos }, vel: { x: Math.cos(angle - spread) * speed, y: Math.sin(angle - spread) * speed },
+                        size: b.size * 0.7, damage: b.damage * 0.6, canSplit: false
+                    });
+                    // Original bullet disappears
+                    b.lifetime = 0;
+                }
+            }
 
             if (b.isSafeZone) {
                 b.safeZoneTimer = (b.safeZoneTimer || 0) - 1;
