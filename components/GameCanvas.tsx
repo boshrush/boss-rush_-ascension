@@ -3977,18 +3977,6 @@ export const GameCanvas: React.FC = () => {
                                     >
                                         REBOOT FROM START
                                     </button>
-
-                                    <div className="grid grid-cols-5 gap-1">
-                                        {[0, 1, 2, 3, 4].map(idx => (
-                                            <button
-                                                key={idx}
-                                                onClick={() => startGame(1, idx)}
-                                                className="py-1.5 bg-slate-800 hover:bg-blue-900 text-[10px] font-bold text-blue-300 rounded border border-blue-900/50"
-                                            >
-                                                B{idx + 1}
-                                            </button>
-                                        ))}
-                                    </div>
                                 </div>
                             </div>
 
@@ -4012,18 +4000,6 @@ export const GameCanvas: React.FC = () => {
                                     >
                                         ENTER THE VOID
                                     </button>
-                                    <div className="grid grid-cols-5 gap-1">
-                                        {[0, 1, 2, 3, 4].map(idx => (
-                                            <button
-                                                key={idx}
-                                                onClick={() => startGame(2, idx + 5)}
-                                                disabled={!phase2Unlocked}
-                                                className="py-1.5 bg-slate-800 hover:bg-purple-900 text-[10px] font-bold text-purple-300 rounded border border-purple-900/30"
-                                            >
-                                                B{idx + 1}
-                                            </button>
-                                        ))}
-                                    </div>
                                 </div>
                             </div>
 
@@ -4050,22 +4026,6 @@ export const GameCanvas: React.FC = () => {
                                     >
                                         GO CARTOON!
                                     </button>
-                                    <div className="grid grid-cols-5 gap-1">
-                                        {[0, 1, 2, 3, 4].map(idx => {
-                                            const checkpoint = JSON.parse(localStorage.getItem('chapter3_checkpoint') || '{}');
-                                            const isReachable = idx === 0 || (checkpoint && checkpoint.lastBossDefeated >= idx);
-                                            return (
-                                                <button
-                                                    key={idx}
-                                                    onClick={() => startGame(3, idx)}
-                                                    disabled={!chapter3Unlocked || !isReachable}
-                                                    className={`py-1.5 text-[10px] font-black rounded border italic ${isReachable ? 'bg-slate-800 hover:bg-orange-900 text-orange-300 border-orange-900/30' : 'bg-slate-950 text-slate-700 border-slate-900 cursor-not-allowed'}`}
-                                                >
-                                                    {isReachable ? `B${idx + 1}` : <Lock size={8} className="mx-auto" />}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
                                 </div>
                             </div>
                         </div>
