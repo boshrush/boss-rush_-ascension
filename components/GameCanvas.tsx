@@ -481,7 +481,7 @@ export const GameCanvas: React.FC = () => {
 
         switch (weapon.effect) {
             case 'NORMAL':
-                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120, canSplit: true });
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'DOUBLE':
                 bullets.current.push({
@@ -1245,7 +1245,7 @@ export const GameCanvas: React.FC = () => {
                             pos: { x: b.pos.x - 50, y: b.pos.y - 100 },
                             vel: { x: -3 - Math.random() * 8, y: -5 - Math.random() * 10 },
                             size: 15, color: isParry ? '#ff00ff' : (i % 2 === 0 ? '#ef4444' : '#3b82f6'),
-                            isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY', isParryable: isParry
+                            isEnemy: true, damage: 15, lifetime: 200, hasGravity: true, isParryable: isParry
                         });
                     }
                 } else if (attackType === 1) {
@@ -1257,7 +1257,7 @@ export const GameCanvas: React.FC = () => {
                             pos: { x: b.pos.x - 30, y: b.pos.y },
                             vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
                             size: 10, color: '#facc15',
-                            isEnemy: true, damage: 10, lifetime: 80
+                            isEnemy: true, damage: 10, lifetime: 120, canSplit: true
                         });
                     }
                 } else {
@@ -2471,30 +2471,28 @@ export const GameCanvas: React.FC = () => {
         for (let i = bullets.current.length - 1; i >= 0; i--) {
             const b = bullets.current[i];
 
-            // --- CHAPTER 3 BULLET PHYSICS ---
-            if (currentChapter.current === 3 && !b.isEnemy) {
+            // --- CHAPTER 3 BULLET PHYSICS (ENEMY ONLY) ---
+            if (currentChapter.current === 3 && b.isEnemy) {
                 // Sky Fall: Shots high up or moving up eventually fall
-                if (b.pos.y < 150 || b.vel.y < 0) {
-                    b.vel.y += 0.15;
+                if (b.hasGravity && (b.pos.y < 150 || b.vel.y < 0)) {
+                    b.vel.y += 0.25;
                 }
 
-                // Normal Split: Normal shots split into two after a few frames
-                if (b.canSplit && b.lifetime === 90) { // Splitting after travel
+                // Normal Split: Enemy shots split into two after travel
+                if (b.canSplit && b.lifetime === 90) {
                     b.canSplit = false;
                     const angle = Math.atan2(b.vel.y, b.vel.x);
                     const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
 
-                    // Add two angled off-shoots (30 degrees each side)
                     const spread = 0.5;
                     bullets.current.push({
                         ...b, pos: { ...b.pos }, vel: { x: Math.cos(angle + spread) * speed, y: Math.sin(angle + spread) * speed },
-                        size: b.size * 0.7, damage: b.damage * 0.6, canSplit: false
+                        size: b.size * 0.8, damage: b.damage, canSplit: false, lifetime: 120
                     });
                     bullets.current.push({
                         ...b, pos: { ...b.pos }, vel: { x: Math.cos(angle - spread) * speed, y: Math.sin(angle - spread) * speed },
-                        size: b.size * 0.7, damage: b.damage * 0.6, canSplit: false
+                        size: b.size * 0.8, damage: b.damage, canSplit: false, lifetime: 120
                     });
-                    // Original bullet disappears
                     b.lifetime = 0;
                 }
             }
