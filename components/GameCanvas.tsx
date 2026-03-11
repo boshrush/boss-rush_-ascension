@@ -298,7 +298,7 @@ export const GameCanvas: React.FC = () => {
         hudGlitch.current = 0;
 
         boss.current = {
-            type: configIndex as BossType,
+            type: (currentChapter.current === 3 ? configIndex + 10 : configIndex) as BossType,
             pos: { x: currentChapter.current === 3 ? CANVAS_WIDTH * 0.75 : CANVAS_WIDTH / 2, y: currentChapter.current === 3 ? CH3_PHYSICS.groundY - (config.size || 50) : 100 },
             size: config.size,
             color: config.color,
@@ -1188,7 +1188,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         // --- BOSS 1: MORTIMER EL PAYASO (Clown) ---
-        if (b.type === 0 as BossType) {
+        if (b.type === BossType.CH3_MORTIMER) {
             const freq = b.phase === 3 ? 40 : (b.phase === 2 ? 60 : 80);
 
             if (b.attackTimer % freq === 0) {
@@ -1241,7 +1241,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         // --- BOSS 2: LA BARONESA VERMILLION (Vampire) ---
-        else if (b.type === 1 as BossType) {
+        else if (b.type === BossType.CH3_VERMILLION) {
             const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
 
             if (b.attackTimer % freq === 0) {
@@ -1279,7 +1279,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         // --- BOSS 3: DR. VERDOLAGA (Botanist) ---
-        else if (b.type === 2 as BossType) {
+        else if (b.type === BossType.CH3_VERDOLAGA) {
             const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
 
             if (b.attackTimer % freq === 0) {
@@ -1318,7 +1318,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         // --- BOSS 4: CARAMELA LA HECHICERA (Candy Witch) ---
-        else if (b.type === 3 as BossType) {
+        else if (b.type === BossType.CH3_CARAMELA) {
             const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
 
             if (b.attackTimer % freq === 0) {
@@ -1356,7 +1356,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         // --- BOSS 5: EL GRAN DIABLO SCRATCH (The Devil) ---
-        else if (b.type === 4 as BossType) {
+        else if (b.type === BossType.CH3_SCRATCH) {
             const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
 
             // Constant hellfire floor in Phase 3
@@ -2550,14 +2550,18 @@ export const GameCanvas: React.FC = () => {
                 }
             }
 
-            if (b.lifetime <= 0) {
+            if (b.lifetime <= 0 || (b.effect === 'CARTOON_HIT' && b.isEnemy)) {
                 // Enemy cluster bullets explode on timeout
-                if (b.isEnemy && b.clusterCount && b.clusterCount > 0) {
+                if (b.clusterCount && b.clusterCount > 0) {
                     for (let k = 0; k < b.clusterCount; k++) {
                         const a = Math.random() * Math.PI * 2;
                         bullets.current.push({
                             pos: { ...b.pos }, vel: { x: Math.cos(a) * 5, y: Math.sin(a) * 5 },
-                            size: 5, color: '#ef4444', isEnemy: true, damage: b.damage * 0.5, lifetime: 40
+                            size: b.effect === 'CARTOON_HIT' ? 10 : 5,
+                            color: b.effect === 'CARTOON_HIT' ? '#facc15' : '#ef4444',
+                            isEnemy: b.isEnemy,
+                            damage: b.damage * 0.5,
+                            lifetime: 40
                         });
                     }
                     spawnParticles(b.pos, '#ffffff', 5, 2);
@@ -3110,7 +3114,7 @@ export const GameCanvas: React.FC = () => {
                 };
 
                 switch (bossType) {
-                    case 0 as BossType: // Mortimer (Clown)
+                    case BossType.CH3_MORTIMER: // Mortimer (Clown)
                         ctx.fillStyle = '#fff';
                         ctx.beginPath(); ctx.ellipse(0, 0, 60, 70, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#ef4444'; // Red Nose
@@ -3120,14 +3124,14 @@ export const GameCanvas: React.FC = () => {
                         ctx.beginPath(); ctx.arc(50, -30, 25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         drawEyes(-25);
                         break;
-                    case 1 as BossType: // Baronesa (Vampire)
+                    case BossType.CH3_VERMILLION: // Baronesa (Vampire)
                         ctx.fillStyle = '#1e1b4b'; // Dark Cape 
                         ctx.beginPath(); ctx.moveTo(-70, 0); ctx.lineTo(0, -90); ctx.lineTo(70, 0); ctx.lineTo(0, 110); ctx.closePath(); ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#fef3c7'; // Face
                         ctx.beginPath(); ctx.ellipse(0, -35, 30, 35, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         drawEyes(-35);
                         break;
-                    case 2 as BossType: // Verdolaga (Plant)
+                    case BossType.CH3_VERDOLAGA: // Verdolaga (Plant)
                         ctx.fillStyle = '#15803d'; // Green Face
                         ctx.beginPath(); ctx.ellipse(0, 0, 70, 60, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#facc15'; // Petals/Hair
@@ -3139,14 +3143,14 @@ export const GameCanvas: React.FC = () => {
                         }
                         drawEyes(-10);
                         break;
-                    case 3 as BossType: // Caramela (Witch)
+                    case BossType.CH3_CARAMELA: // Caramela (Witch)
                         ctx.fillStyle = '#f472b6'; // Pink
                         ctx.beginPath(); ctx.ellipse(0, 0, 50, 60, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#701a75'; // Hat
                         ctx.beginPath(); ctx.moveTo(-60, -15); ctx.lineTo(60, -15); ctx.lineTo(0, -130); ctx.closePath(); ctx.fill(); ctx.stroke();
                         drawEyes(-20);
                         break;
-                    case 4 as BossType: // Scratch (Devil)
+                    case BossType.CH3_SCRATCH: // Scratch (Devil)
                         ctx.fillStyle = '#ef4444'; // Red
                         ctx.beginPath(); ctx.ellipse(0, 0, 80, 90, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                         ctx.fillStyle = '#000'; // Horns
