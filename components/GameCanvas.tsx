@@ -1262,6 +1262,9 @@ export const GameCanvas: React.FC = () => {
                     b.customState = 'IDLE';
                 }
             } else {
+                // Mortimer Hover AI: Drift towards player
+                const targetX = p.pos.x + 200;
+                b.pos.x += (targetX - b.pos.x) * 0.02;
                 b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.05) * 50;
             }
         }
@@ -1301,7 +1304,9 @@ export const GameCanvas: React.FC = () => {
                     });
                 }
             }
-            b.pos.y = CANVAS_HEIGHT * 0.4 + Math.cos(frameCount.current * 0.03) * 100;
+            // Vermillion AI: More vertical movement and slight tracking
+            b.pos.x += (p.pos.x + 150 - b.pos.x) * 0.01;
+            b.pos.y = CANVAS_HEIGHT * 0.4 + Math.cos(frameCount.current * 0.03) * 150;
         }
 
         // --- BOSS 3: DR. VERDOLAGA (Botanist) ---
@@ -1340,7 +1345,8 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
-            b.pos.x = CANVAS_WIDTH * 0.8 + Math.sin(frameCount.current * 0.02) * 100;
+            // Verdolaga AI: Move back and forth aggressively
+            b.pos.x = CANVAS_WIDTH * 0.7 + Math.sin(frameCount.current * 0.04) * 200;
         }
 
         // --- BOSS 4: CARAMELA LA HECHICERA (Candy Witch) ---
@@ -1378,6 +1384,8 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
+            // Caramela AI: Glide towards player
+            b.pos.x += (p.pos.x + 100 - b.pos.x) * 0.015;
             b.pos.y = CANVAS_HEIGHT * 0.5 + Math.sin(frameCount.current * 0.08) * 150;
         }
 
@@ -1434,6 +1442,10 @@ export const GameCanvas: React.FC = () => {
                     }
                 }
             }
+            // Scratch AI: Variable positioning, can move closer
+            const scratchTargetX = p.pos.x + 150 + Math.sin(frameCount.current * 0.02) * 100;
+            b.pos.x += (scratchTargetX - b.pos.x) * 0.01;
+            b.pos.y = CANVAS_HEIGHT * 0.5 + Math.cos(frameCount.current * 0.05) * 100;
         }
     };
 
@@ -2131,6 +2143,11 @@ export const GameCanvas: React.FC = () => {
             p.lastCh3Facing = 1;
         }
         if (!p.lastCh3Facing) p.lastCh3Facing = 1; // Default to Right
+
+        // Stationary Aiming: If holding W/Up, stop moving horizontally
+        if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) {
+            p.vel.x = 0;
+        }
 
         // Crouch (S or Down)
         const wantsToCrouch = (keys.current.has('KeyS') || keys.current.has('ArrowDown'));
@@ -2958,7 +2975,7 @@ export const GameCanvas: React.FC = () => {
                 const legMove = Math.sin(frameCount.current * 0.3) * 12;
                 const isMoving = Math.abs(p.vel.x || 0) > 0.1;
                 const isCrouching = p.ch3Crouching;
-                const dir = p.vel.x >= 0 ? 1 : -1;
+                const dir = p.lastCh3Facing || 1;
 
                 ctx.save();
                 ctx.translate(px, py + (isCrouching ? 5 : 0));
