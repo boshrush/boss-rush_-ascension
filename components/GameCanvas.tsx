@@ -1203,6 +1203,22 @@ export const GameCanvas: React.FC = () => {
 
         b.attackTimer++;
 
+        // --- MELEE PARRY ORB ---
+        // If boss gets too close, occasionally spawn a melee orb to parry-jump away
+        if (frameCount.current % 120 === 0) {
+            const dx = p.pos.x - b.pos.x;
+            const dy = p.pos.y - b.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 180) {
+                bullets.current.push({
+                    pos: { x: b.pos.x + dx * 0.5, y: b.pos.y + dy * 0.5 },
+                    vel: { x: 0, y: 0 },
+                    size: 30, color: '#ff00ff', isEnemy: true, damage: 15, lifetime: 80,
+                    isParryable: true, effect: 'MELEE_ORB'
+                });
+            }
+        }
+
         // Phase Transitions
         if (b.hp < b.maxHp * 0.3 && b.phase === 2) {
             b.phase = 3;
@@ -2403,9 +2419,15 @@ export const GameCanvas: React.FC = () => {
         }
 
         handleSecondaryLogic();
-        if ((mouseDown.current || keys.current.has('KeyJ') || rightMouseDown.current || keys.current.has('KeyK') || keys.current.has('KeyE') || keys.current.has('KeyZ'))) {
-            if (currentChapter.current === 3) fireCh3Weapon();
-            else fireSecondary();
+        // Secondary/Abilities Trigger Separation
+        if (currentChapter.current === 3) {
+            // Chapter 3: E triggers the currently selected loadout slot
+            if (keys.current.has('KeyE')) fireCh3Weapon();
+        } else {
+            // Chapters 1 & 2: Only trigger on Right Click, K or E keys
+            if (rightMouseDown.current || keys.current.has('KeyK') || keys.current.has('KeyE')) {
+                fireSecondary();
+            }
         }
 
         if (currentChapter.current === 1) handleBossLogic();
@@ -2669,6 +2691,15 @@ export const GameCanvas: React.FC = () => {
                     shakeIntensity.current = Math.max(shakeIntensity.current, 10);
                     p.invincibilityTimer = 60; // Reward: 1s iframes
                     if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 5); // Reward: minor heal
+
+                    // Super Jump if MELEE_ORB
+                    if (b.effect === 'MELEE_ORB') {
+                        p.vel.y = -CH3_PHYSICS.jumpPower * 1.5;
+                        p.ch3Grounded = false;
+                        p.ch3Jumping = true;
+                        spawnParticles(p.pos, '#fef3c7', 30, 8);
+                    }
+
                     if (!b.piercing) { bullets.current.splice(i, 1); continue; }
                 }
 
@@ -2793,7 +2824,7 @@ export const GameCanvas: React.FC = () => {
 
             const isFinalBoss = (currentChapter.current === 1 && currentBossIndex.current === 4) ||
                 (currentChapter.current === 2 && currentBossIndex.current === 9) ||
-                (currentChapter.current === 3 && currentBossIndex.current === 14);
+                (currentChapter.current === 3 && currentBossIndex.current === 4);
 
             boss.current = null;
 
@@ -2803,7 +2834,7 @@ export const GameCanvas: React.FC = () => {
                 // Determine if we should go to the next boss or show victory
                 if (!isFinalBoss) {
                     currentBossIndex.current++;
-                    setTimeout(() => { initBoss(); }, 1500); // Spawn next boss
+                    setTimeout(() => { initBoss(currentBossIndex.current); }, 1500); // Spawn next boss
                 } else {
                     setTimeout(() => {
                         setUiState(GameState.CH3_SHOP); // Or Victory Screen based on design
@@ -3435,6 +3466,30 @@ export const GameCanvas: React.FC = () => {
                 else { ctx.moveTo(bul.pos.x, bTop); ctx.lineTo(bul.pos.x, bBot); }
                 ctx.stroke();
                 ctx.setLineDash([]); ctx.shadowBlur = 0;
+            } else if (bul.effect === 'MELEE_ORB') {
+                // Cartoonish Parry Orb
+                const pulse = Math.sin(frameCount.current * 0.2) * 5;
+                const orbSize = bul.size + pulse;
+
+                // Outer Glow
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#f0abfc';
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(bul.pos.x, bul.pos.y, orbSize, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Inner highlight
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(bul.pos.x - orbSize * 0.3, bul.pos.y - orbSize * 0.3, orbSize * 0.2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Outline
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
+                ctx.stroke();
             }
         });
 

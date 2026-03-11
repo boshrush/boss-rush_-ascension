@@ -345,9 +345,9 @@ export const CH3_PHYSICS = {
   moveSpeed: 4.5,
   terminalVelocity: 12,
   platforms: [
-    { x: 150, y: 380, w: 150, h: 20 },
-    { x: 500, y: 380, w: 150, h: 20 },
-    { x: 325, y: 250, w: 150, h: 20 }
+    { x: 150, y: 420, w: 150, h: 20 },
+    { x: 500, y: 420, w: 150, h: 20 },
+    { x: 325, y: 310, w: 150, h: 20 }
   ]
 };
 
