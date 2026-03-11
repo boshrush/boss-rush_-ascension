@@ -460,21 +460,45 @@ export const GameCanvas: React.FC = () => {
         if (!weapon) return;
 
         const damage = p.damage;
-        const pos = { x: p.pos.x + 25, y: p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15 };
+
+        // Calculate Direction
+        let shootDirX = p.lastCh3Facing || 1;
+        let shootDirY = 0;
+        if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) {
+            shootDirY = -1;
+            if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) shootDirX = 0;
+        } else if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) {
+            shootDirY = 1;
+            if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) shootDirX = 0;
+        }
+        const mag = Math.sqrt(shootDirX * shootDirX + shootDirY * shootDirY) || 1;
+        const dirX = shootDirX / mag;
+        const dirY = shootDirY / mag;
+
+        const bulletY = p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15;
+        const pos = { x: p.pos.x + (shootDirX * 25), y: bulletY };
 
         switch (weapon.effect) {
             case 'NORMAL':
-                bullets.current.push({ pos, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120 });
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'DOUBLE':
-                bullets.current.push({ pos: { x: pos.x, y: pos.y - 10 }, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120 });
-                bullets.current.push({ pos: { x: pos.x, y: pos.y + 10 }, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120 });
+                bullets.current.push({
+                    pos: { x: pos.x - dirY * 10, y: pos.y + dirX * 10 },
+                    vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed },
+                    size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120
+                });
+                bullets.current.push({
+                    pos: { x: pos.x + dirY * 10, y: pos.y - dirX * 10 },
+                    vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed },
+                    size: p.projectileSize, color: '#facc15', isEnemy: false, damage: damage * 0.7, lifetime: 120
+                });
                 break;
             case 'BEAM':
                 p.beamDuration = 60;
                 break;
             case 'EXPLOSIVE':
-                bullets.current.push({ pos, vel: { x: p.projectileSpeed * 0.8, y: 0 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed * 0.8, y: dirY * p.projectileSpeed * 0.8 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
                 break;
             case 'BOOMERANG':
                 bullets.current.push({ pos, vel: { x: 12, y: 0 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, homing: true }); // Returns via homing or simple flip
@@ -2097,9 +2121,16 @@ export const GameCanvas: React.FC = () => {
         // Reset horizontal velocity
         p.vel.x = 0;
 
-        // Controls
-        if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) p.vel.x = -physics.moveSpeed;
-        if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) p.vel.x = physics.moveSpeed;
+        // Horizontal Controls & Facing
+        if (keys.current.has('KeyA') || keys.current.has('ArrowLeft')) {
+            p.vel.x = -physics.moveSpeed;
+            p.lastCh3Facing = -1;
+        }
+        if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) {
+            p.vel.x = physics.moveSpeed;
+            p.lastCh3Facing = 1;
+        }
+        if (!p.lastCh3Facing) p.lastCh3Facing = 1; // Default to Right
 
         // Crouch (S or Down)
         const wantsToCrouch = (keys.current.has('KeyS') || keys.current.has('ArrowDown'));
@@ -2112,8 +2143,8 @@ export const GameCanvas: React.FC = () => {
             p.size = 20; // Normal hit box
         }
 
-        // Jump (W, Space, or Up)
-        const wantsToJump = (keys.current.has('KeyW') || keys.current.has('ArrowUp') || keys.current.has('Space'));
+        // Jump (Only Space for Chapter 3 as requested)
+        const wantsToJump = keys.current.has('Space');
         if (wantsToJump && p.ch3Grounded && !p.ch3Crouching && !p.ch3Jumping) {
             p.vel.y = -physics.jumpPower;
             p.ch3Grounded = false;
@@ -2236,14 +2267,39 @@ export const GameCanvas: React.FC = () => {
         // Shooting Logic
         if (!p.isSoulMode && (mouseDown.current || keys.current.has('KeyJ') || keys.current.has('KeyZ')) && p.shootCooldown <= 0 && !p.isCharging) {
             if (currentChapter.current === 3) {
-                // Horizontal shooting for Chapter 3
+                // Directional Shooting for Chapter 3
+                let shootDirX = p.lastCh3Facing || 1;
+                let shootDirY = 0;
+
+                // Vertical Aiming
+                if (keys.current.has('KeyW') || keys.current.has('ArrowUp')) {
+                    shootDirY = -1;
+                    // If holding UP but no horizontal move keys, can shoot strictly UP
+                    if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) {
+                        shootDirX = 0;
+                    }
+                } else if (keys.current.has('KeyS') || keys.current.has('ArrowDown')) {
+                    shootDirY = 1;
+                    if (!keys.current.has('KeyA') && !keys.current.has('ArrowLeft') && !keys.current.has('KeyD') && !keys.current.has('ArrowRight')) {
+                        shootDirX = 0;
+                    }
+                }
+
+                // Normalize direction
+                const mag = Math.sqrt(shootDirX * shootDirX + shootDirY * shootDirY) || 1;
+                const vx = (shootDirX / mag) * p.projectileSpeed;
+                const vy = (shootDirY / mag) * p.projectileSpeed;
+
                 const bulletY = p.ch3Crouching ? p.pos.y + 5 : p.pos.y - 15;
+                const bulletX = p.pos.x + (shootDirX * 25);
+
                 bullets.current.push({
-                    pos: { x: p.pos.x + 25, y: bulletY }, vel: { x: p.projectileSpeed, y: 0 },
+                    pos: { x: bulletX, y: bulletY },
+                    vel: { x: vx, y: vy },
                     size: p.projectileSize, color: '#facc15', isEnemy: false, damage: p.damage, lifetime: 120,
                     effect: 'CARTOON_HIT'
                 });
-                spawnParticles({ x: p.pos.x + 25, y: bulletY }, '#fff', 2, 3);
+                spawnParticles({ x: bulletX, y: bulletY }, '#fff', 2, 3);
             } else {
                 // Top-down shooting for Chapters 1 & 2
                 bullets.current.push({
@@ -2271,7 +2327,22 @@ export const GameCanvas: React.FC = () => {
 
         if (currentChapter.current === 1) handleBossLogic();
         else if (currentChapter.current === 2) handleCh2BossLogic();
-        else if (currentChapter.current === 3) handleCh3BossLogic();
+        else if (currentChapter.current === 3) {
+            handleCh3BossLogic();
+            // Boss Collision Damage for Chapter 3
+            if (boss.current && player.current.invincibilityTimer <= 0 && !player.current.isDashing) {
+                const b = boss.current;
+                const dx = p.pos.x - b.pos.x;
+                const dy = p.pos.y - b.pos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < (p.size + b.size * 0.7)) {
+                    p.hp -= 20 * Math.pow(3, newGamePlusCount.current);
+                    p.invincibilityTimer = 60;
+                    shakeIntensity.current = 15;
+                    spawnParticles(p.pos, '#ef4444', 10, 5);
+                }
+            }
+        }
 
         for (let i = bullets.current.length - 1; i >= 0; i--) {
             const b = bullets.current[i];
