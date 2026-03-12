@@ -1219,11 +1219,11 @@ export const GameCanvas: React.FC = () => {
         b.attackTimer++;
 
         // Phase Transitions
-        if (b.hp < b.maxHp * 0.3 && b.phase === 2) {
+        if (b.hp < b.maxHp * 0.33 && b.phase === 2) {
             b.phase = 3;
             spawnParticles(b.pos, '#fff', 50, 10);
             shakeIntensity.current = 20;
-        } else if (b.hp < b.maxHp * 0.6 && b.phase === 1) {
+        } else if (b.hp < b.maxHp * 0.66 && b.phase === 1) {
             b.phase = 2;
             spawnParticles(b.pos, '#fff', 30, 8);
             shakeIntensity.current = 15;
@@ -1231,40 +1231,59 @@ export const GameCanvas: React.FC = () => {
 
         // --- BOSS 1: MORTIMER EL PAYASO (Clown) ---
         if (b.type === BossType.CH3_MORTIMER) {
-            const freq = b.phase === 3 ? 40 : (b.phase === 2 ? 60 : 80);
+            const freq = b.phase === 3 ? 35 : (b.phase === 2 ? 55 : 75);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * 3);
+                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
 
                 if (attackType === 0) {
-                    // Juggling Balls (Arcing Falling)
+                    // Juggling Balls
                     for (let i = 0; i < (b.phase * 3) + 2; i++) {
-                        const isParry = i % 3 === 0;
                         bullets.current.push({
                             pos: { x: b.pos.x - 50, y: b.pos.y - 100 },
                             vel: { x: -3 - Math.random() * 8, y: -5 - Math.random() * 10 },
-                            size: 15, color: isParry ? '#ff00ff' : (i % 2 === 0 ? '#ef4444' : '#3b82f6'),
-                            isEnemy: true, damage: 15, lifetime: 200, hasGravity: true, isParryable: isParry
+                            size: 15, color: (i % 2 === 0 ? '#ef4444' : '#3b82f6'),
+                            isEnemy: true, damage: 15, lifetime: 200, hasGravity: true
                         });
                     }
                 } else if (attackType === 1) {
-                    // Honk Honk! (Fast Burst)
+                    // Honk Honk!
                     for (let i = 0; i < 8 + b.phase * 4; i++) {
                         const targetAngle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                         const angle = targetAngle + (i / 10) - 0.5;
                         bullets.current.push({
                             pos: { x: b.pos.x - 30, y: b.pos.y },
                             vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
-                            size: 10, color: '#facc15',
-                            isEnemy: true, damage: 10, lifetime: 120, canSplit: true
+                            size: 10, color: '#facc15', isEnemy: true, damage: 10, lifetime: 120, canSplit: true
                         });
                     }
-                } else {
+                } else if (attackType === 2) {
                     // Bumper Car Charge
                     b.vel.x = -15 - (b.phase * 5);
                     b.customState = 'CHARGING';
+                } else if (attackType === 3 && b.phase >= 2) {
+                    // Phase 2 New: Exploding Balloon Animals
+                    for (let i = 0; i < 3; i++) {
+                        bullets.current.push({
+                            pos: { x: b.pos.x - 50, y: b.pos.y + (i - 1) * 80 },
+                            vel: { x: -4, y: (Math.random() - 0.5) * 4 },
+                            size: 25, color: i === 0 ? '#f472b6' : (i === 1 ? '#60a5fa' : '#34d399'),
+                            isEnemy: true, damage: 20, lifetime: 120, clusterCount: 10 // clusterCount triggers explosion on death
+                        });
+                    }
                 }
             }
+
+            if (b.phase === 3 && frameCount.current % 10 === 0) {
+                // Phase 3: Dangerous Confetti Trail
+                bullets.current.push({
+                    pos: { x: b.pos.x, y: b.pos.y },
+                    vel: { x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 },
+                    size: 6, color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                    isEnemy: true, damage: 5, lifetime: 60
+                });
+            }
+
             if (b.customState === 'CHARGING') {
                 b.pos.x += b.vel.x;
                 if (b.pos.x < 50) {
@@ -1280,7 +1299,7 @@ export const GameCanvas: React.FC = () => {
                     b.customState = 'IDLE';
                 }
             } else {
-                // Mortimer Hover AI: Bounce around independently
+                let speedMult = b.phase === 3 ? 1.5 : 1.0;
                 if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.75, y: CANVAS_HEIGHT * 0.5 };
                 if (frameCount.current % 120 === 0) {
                     b.targetPos = {
@@ -1288,17 +1307,17 @@ export const GameCanvas: React.FC = () => {
                         y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, b.pos.y + (Math.random() - 0.5) * 300))
                     };
                 }
-                b.pos.x += (b.targetPos.x - b.pos.x) * 0.02;
-                b.pos.y += (b.targetPos.y - b.pos.y) * 0.02;
+                b.pos.x += (b.targetPos.x - b.pos.x) * 0.02 * speedMult;
+                b.pos.y += (b.targetPos.y - b.pos.y) * 0.02 * speedMult;
             }
         }
 
         // --- BOSS 2: LA BARONESA VERMILLION (Vampire) ---
         else if (b.type === BossType.CH3_VERMILLION) {
-            const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
+            const freq = b.phase === 3 ? 25 : (b.phase === 2 ? 40 : 55);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * 3);
+                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
 
                 if (attackType === 0) {
                     // Bats (Homing Sweep)
@@ -1313,15 +1332,14 @@ export const GameCanvas: React.FC = () => {
                     }
                 } else if (attackType === 1) {
                     // Blood Wine (Parabolic Drops)
-                    for (let i = 0; i < 15; i++) {
-                        const isParry = i % 4 === 0;
+                    for (let i = 0; i < 15 + b.phase * 5; i++) {
                         bullets.current.push({
-                            pos: { x: b.pos.x - Math.random() * 400, y: -20 },
+                            pos: { x: b.pos.x - Math.random() * 500, y: -20 },
                             vel: { x: 0, y: 5 + Math.random() * 5 },
-                            size: isParry ? 12 : 8, color: isParry ? '#ff00ff' : '#991b1b', isEnemy: true, damage: 10, lifetime: 150, isParryable: isParry
+                            size: 8, color: '#991b1b', isEnemy: true, damage: 10, lifetime: 150
                         });
                     }
-                } else {
+                } else if (attackType === 2) {
                     // Vampire Cloak Sweep
                     const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
@@ -1329,8 +1347,31 @@ export const GameCanvas: React.FC = () => {
                         vel: { x: Math.cos(angle) * 20, y: Math.sin(angle) * 20 },
                         size: 80, color: 'rgba(127, 29, 29, 0.5)', isEnemy: true, damage: 25, lifetime: 60
                     });
+                } else if (attackType === 3 && b.phase >= 2) {
+                    // Phase 2 New: Shadow Step (Teleport)
+                    spawnParticles(b.pos, '#000', 30, 5);
+                    b.pos.x = 100 + Math.random() * (CANVAS_WIDTH - 200);
+                    b.pos.y = 100 + Math.random() * (CANVAS_HEIGHT - 300);
+                    spawnParticles(b.pos, '#000', 30, 5);
+                    // Leave bats behind
+                    for (let a = 0; a < Math.PI * 2; a += 0.8) {
+                        bullets.current.push({
+                            pos: { ...b.pos }, vel: { x: Math.cos(a) * 5, y: Math.sin(a) * 5 },
+                            size: 10, color: '#1e1b4b', isEnemy: true, damage: 15, lifetime: 100
+                        });
+                    }
                 }
             }
+
+            if (b.phase === 3 && frameCount.current % 20 === 0) {
+                // Phase 3: Constant Blood Rain
+                bullets.current.push({
+                    pos: { x: Math.random() * CANVAS_WIDTH, y: -20 },
+                    vel: { x: (Math.random() - 0.5) * 2, y: 6 },
+                    size: 6, color: '#7f1d1d', isEnemy: true, damage: 8, lifetime: 120
+                });
+            }
+
             // Vermillion AI: Swooping movement independent of player X
             if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.8, y: CANVAS_HEIGHT * 0.3 };
             if (frameCount.current % 90 === 0) {
@@ -1345,36 +1386,35 @@ export const GameCanvas: React.FC = () => {
 
         // --- BOSS 3: DR. VERDOLAGA (Botanist) ---
         else if (b.type === BossType.CH3_VERDOLAGA) {
-            const freq = b.phase === 3 ? 30 : (b.phase === 2 ? 45 : 60);
+            const freq = b.phase === 3 ? 25 : (b.phase === 2 ? 40 : 55);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * 3);
+                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
 
                 if (attackType === 0) {
                     // Seed Spitting (Multi-shot)
                     for (let i = 0; i < 5 + b.phase * 2; i++) {
                         setTimeout(() => {
-                            const isParry = i === 2 || i === 5;
                             if (!boss.current) return;
                             const targetAngle = Math.atan2(p.pos.y - boss.current.pos.y, p.pos.x - boss.current.pos.x);
                             const spread = (Math.random() - 0.5) * 0.5;
                             bullets.current.push({
                                 pos: { x: boss.current.pos.x, y: boss.current.pos.y },
                                 vel: { x: Math.cos(targetAngle + spread) * 10, y: Math.sin(targetAngle + spread) * 10 },
-                                size: isParry ? 15 : 10, color: isParry ? '#ff00ff' : '#16a34a', isEnemy: true, damage: 12, lifetime: 120, isParryable: isParry
+                                size: 10, color: '#16a34a', isEnemy: true, damage: 12, lifetime: 120
                             });
                         }, i * 100);
                     }
                 } else if (attackType === 1) {
-                    // Toxic Gas (Large slow clouds aimed at player)
+                    // Toxic Gas (Large slow clouds)
                     const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { x: b.pos.x, y: b.pos.y },
                         vel: { x: Math.cos(angle) * 3, y: Math.sin(angle) * 3 },
-                        size: 100, color: 'rgba(34, 197, 94, 0.3)', isEnemy: true, damage: 5, lifetime: 200, effect: 'GAS'
+                        size: 90, color: 'rgba(34, 197, 94, 0.3)', isEnemy: true, damage: 5, lifetime: 200, effect: 'GAS'
                     });
-                } else {
-                    // Root Surge from underground
+                } else if (attackType === 2) {
+                    // Root Surge
                     for (let x = 100; x < CANVAS_WIDTH - 200; x += 150) {
                         bullets.current.push({
                             pos: { x, y: CH3_PHYSICS.groundY + 50 },
@@ -1382,9 +1422,28 @@ export const GameCanvas: React.FC = () => {
                             size: 30, color: '#4d7c0f', isEnemy: true, damage: 25, lifetime: 30
                         });
                     }
+                } else if (attackType === 3 && b.phase >= 2) {
+                    // Phase 2 New: Thorny Vines (Ground Hazards)
+                    for (let i = 0; i < 3; i++) {
+                        bullets.current.push({
+                            pos: { x: 100 + Math.random() * (CANVAS_WIDTH - 200), y: CH3_PHYSICS.groundY - 20 },
+                            vel: { x: 0, y: 0 },
+                            size: 40, color: '#166534', isEnemy: true, damage: 15, lifetime: 180, isBone: true, boneWidth: 20, boneHeight: 80
+                        });
+                    }
                 }
             }
-            // Verdolaga AI: Move back and forth aggressively but independently
+
+            if (b.phase === 3 && frameCount.current % 40 === 0) {
+                // Phase 3: Spores Overload (Tracking spores)
+                bullets.current.push({
+                    pos: { x: b.pos.x, y: b.pos.y },
+                    vel: { x: (p.pos.x - b.pos.x) * 0.05, y: (p.pos.y - b.pos.y) * 0.05 },
+                    size: 30, color: 'rgba(22, 101, 52, 0.6)', isEnemy: true, damage: 10, lifetime: 150, effect: 'GAS'
+                });
+            }
+
+            // Verdolaga AI: Move back and forth aggressively
             if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.9, y: CANVAS_HEIGHT * 0.5 };
             if (frameCount.current % 150 === 0) {
                 b.targetPos = {
@@ -1398,42 +1457,62 @@ export const GameCanvas: React.FC = () => {
 
         // --- BOSS 4: CARAMELA LA HECHICERA (Candy Witch) ---
         else if (b.type === BossType.CH3_CARAMELA) {
-            const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
+            const freq = b.phase === 3 ? 15 : (b.phase === 2 ? 30 : 45);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * 3);
+                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
 
                 if (attackType === 0) {
                     // Candy Rain (Parabolic)
                     for (let i = 0; i < 10 + b.phase * 5; i++) {
-                        const isParry = i % 5 === 0;
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y },
                             vel: { x: -5 - Math.random() * 10, y: -10 - Math.random() * 5 },
-                            size: isParry ? 15 : 10, color: isParry ? '#ff00ff' : `hsl(${Math.random() * 360}, 70%, 70%)`, isEnemy: true, damage: 15, lifetime: 200, effect: 'GRAVITY', isParryable: isParry
+                            size: 10, color: `hsl(${Math.random() * 360}, 70%, 70%)`, isEnemy: true, damage: 15, lifetime: 200, hasGravity: true
                         });
                     }
                 } else if (attackType === 1) {
-                    // Sticky Bubblegum aimed at player
+                    // Sticky Bubblegum
                     const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { x: b.pos.x, y: b.pos.y },
                         vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
                         size: 40, color: '#f472b6', isEnemy: true, damage: 10, lifetime: 120, effect: 'SLOW_PLAYER'
                     });
-                } else {
-                    // Sweets Spiral
-                    for (let i = 0; i < 12; i++) {
-                        const angle = (i / 12) * Math.PI * 2;
+                } else if (attackType === 2) {
+                    // Sweets Spiral (Sugar Storm)
+                    const count = 12 + b.phase * 4;
+                    for (let i = 0; i < count; i++) {
+                        const angle = (i / count) * Math.PI * 2;
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y },
                             vel: { x: Math.cos(angle) * 6, y: Math.sin(angle) * 6 },
                             size: 12, color: '#fb7185', isEnemy: true, damage: 20, lifetime: 180, effect: 'SPIRAL'
                         });
                     }
+                } else if (attackType === 3 && b.phase >= 2) {
+                    // Phase 2/3 New: Cookie March (Rolling projectiles)
+                    for (let i = 0; i < 2; i++) {
+                        bullets.current.push({
+                            pos: { x: CANVAS_WIDTH + 50, y: CH3_PHYSICS.groundY - 20 },
+                            vel: { x: -6 - Math.random() * 4, y: 0 },
+                            size: 30, color: '#92400e', isEnemy: true, damage: 20, lifetime: 200, effect: 'SPIRAL' // Using spiral as a rotation visual
+                        });
+                    }
                 }
             }
-            // Caramela AI: Glide smoothly on independent path
+
+            if (b.phase === 3 && frameCount.current % 100 === 0) {
+                // Phase 3: Giant Jawbreaker
+                const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                bullets.current.push({
+                    pos: { x: b.pos.x, y: b.pos.y },
+                    vel: { x: Math.cos(angle) * 5, y: Math.sin(angle) * 5 },
+                    size: 60, color: `hsl(${frameCount.current % 360}, 80%, 60%)`, isEnemy: true, damage: 30, lifetime: 250, canSplit: true
+                });
+            }
+
+            // Caramela AI: Glide smoothly
             if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.8, y: CANVAS_HEIGHT * 0.5 };
             if (frameCount.current % 60 === 0) {
                 b.targetPos = {
@@ -1447,22 +1526,29 @@ export const GameCanvas: React.FC = () => {
 
         // --- BOSS 5: EL GRAN DIABLO SCRATCH (The Devil) ---
         else if (b.type === BossType.CH3_SCRATCH) {
-            const freq = b.phase === 3 ? 20 : (b.phase === 2 ? 35 : 50);
+            const freq = b.phase === 3 ? 15 : (b.phase === 2 ? 30 : 45);
 
-            // Constant hellfire floor in Phase 3
-            if (b.phase === 3 && frameCount.current % 15 === 0) {
-                bullets.current.push({
-                    pos: { x: Math.random() * CANVAS_WIDTH, y: CH3_PHYSICS.groundY - 10 },
-                    vel: { x: (Math.random() - 0.5) * 4, y: -4 - Math.random() * 4 },
-                    size: 20, color: '#ef4444', isEnemy: true, damage: 10, lifetime: 60
-                });
+            // Constant hellfire particles in Phase 3
+            if (b.phase === 3 && frameCount.current % 10 === 0) {
+                spawnParticles({ x: Math.random() * CANVAS_WIDTH, y: CH3_PHYSICS.groundY }, '#ef4444', 1, 2);
+            }
+
+            // Phase 2 New: Hellish Suction (Pull player)
+            if (b.phase >= 2) {
+                const dx = b.pos.x - p.pos.x;
+                const dy = b.pos.y - p.pos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 400) {
+                    p.pos.x += dx * 0.015;
+                    p.pos.y += dy * 0.015;
+                }
             }
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * 4);
+                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 5 : 4));
 
                 if (attackType === 0) {
-                    // Pitchfork Thrust (Beam targeting player)
+                    // Pitchfork Thrust
                     const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     bullets.current.push({
                         pos: { x: b.pos.x, y: b.pos.y },
@@ -1479,18 +1565,17 @@ export const GameCanvas: React.FC = () => {
                         });
                     }
                 } else if (attackType === 2) {
-                    // Demon Skulls (Homing from spread to player)
+                    // Demon Skulls 
                     const baseAngle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
                     for (let i = 0; i < 3 + b.phase; i++) {
-                        const isParry = i === 1;
                         const spreadAngle = baseAngle + (i - (3 + b.phase) / 2) * 0.2;
                         bullets.current.push({
                             pos: { x: b.pos.x, y: b.pos.y },
                             vel: { x: Math.cos(spreadAngle) * 8, y: Math.sin(spreadAngle) * 8 },
-                            size: 25, color: isParry ? '#ff00ff' : '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT', isParryable: isParry
+                            size: 25, color: '#fff', isEnemy: true, damage: 25, lifetime: 200, effect: 'HOMING_SOFT'
                         });
                     }
-                } else {
+                } else if (attackType === 3) {
                     // Pentagram Explosion
                     for (let i = 0; i < 16; i++) {
                         const angle = (i / 16) * Math.PI * 2;
@@ -1500,14 +1585,36 @@ export const GameCanvas: React.FC = () => {
                             size: 15, color: '#ef4444', isEnemy: true, damage: 15, lifetime: 120, effect: 'SPIRAL'
                         });
                     }
+                } else if (attackType === 4 && b.phase >= 2) {
+                    // Phase 2/3 New: Trident Fan
+                    const baseAngle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                    for (let i = -2; i <= 2; i++) {
+                        const angle = baseAngle + i * 0.3;
+                        bullets.current.push({
+                            pos: { x: b.pos.x, y: b.pos.y },
+                            vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
+                            size: 15, color: '#ef4444', isEnemy: true, damage: 20, lifetime: 100
+                        });
+                    }
                 }
             }
-            // Scratch AI: Variable independent positioning
+
+            if (b.phase === 3 && frameCount.current % 40 === 0) {
+                // Phase 3: Final Judgment Beams
+                const x = Math.random() * CANVAS_WIDTH;
+                bullets.current.push({
+                    pos: { x, y: 0 },
+                    vel: { x: 0, y: 0 },
+                    size: 40, color: 'rgba(239, 68, 68, 0.4)', isEnemy: true, damage: 30, lifetime: 60, effect: 'BEAM'
+                });
+            }
+
+            // Scratch AI: Positioning
             if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.7, y: CANVAS_HEIGHT * 0.4 };
-            if (frameCount.current % 100 === 0) {
+            if (frameCount.current % 60 === 0) {
                 b.targetPos = {
-                    x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 400)),
-                    y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, CANVAS_HEIGHT * Math.random()))
+                    x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 300)),
+                    y: Math.max(100, Math.min(CH3_PHYSICS.groundY - 150, b.pos.y + (Math.random() - 0.5) * 200))
                 };
             }
             b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
