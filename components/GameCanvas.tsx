@@ -2133,7 +2133,7 @@ export const GameCanvas: React.FC = () => {
     };
 
     const handleAdminLogin = () => {
-        if (passwordInput === 'nintendo64') {
+        if (passwordInput === 'diegoesputo') {
             isAdminAuthenticated.current = true;
             setUiState(GameState.ADMIN);
             setPasswordInput('');
