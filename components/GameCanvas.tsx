@@ -513,10 +513,20 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * 10, y: dirY * 10 }, size: 8, color: '#60a5fa', isEnemy: false, damage, lifetime: 300, bounces: 0, maxBounces: 5 });
                 break;
             case 'SPREAD':
-                for (let i = 0; i < 6; i++) {
+                const colors = ['#f472b6', '#fbbf24', '#60a5fa', '#34d399', '#facc15', '#fff'];
+                for (let i = 0; i < 8; i++) {
                     const baseAngle = Math.atan2(dirY, dirX);
-                    const angle = baseAngle + (Math.random() - 0.5) * 0.8;
-                    bullets.current.push({ pos, vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 }, size: 6, color: '#fff', isEnemy: false, damage: damage * 0.5, lifetime: 80 });
+                    const angle = baseAngle + (Math.random() - 0.5) * 1.2;
+                    const speed = 8 + Math.random() * 6;
+                    bullets.current.push({
+                        pos: { ...pos },
+                        vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                        size: 4 + Math.random() * 4,
+                        color: colors[Math.floor(Math.random() * colors.length)],
+                        isEnemy: false,
+                        damage: damage * 0.4,
+                        lifetime: 60 + Math.random() * 40
+                    });
                 }
                 break;
             case 'TRIPLE':
@@ -2623,9 +2633,19 @@ export const GameCanvas: React.FC = () => {
 
             if (b.effect === 'GAS') {
                 b.size += 0.5;
-                const dist = Math.sqrt((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2);
-                if (dist < b.size && frameCount.current % 10 === 0) {
-                    if (p.invincibilityTimer <= 0) p.hp -= b.damage;
+                if (!b.isEnemy && boss.current) {
+                    const dx = b.pos.x - boss.current.pos.x;
+                    const dy = b.pos.y - boss.current.pos.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < b.size && frameCount.current % 15 === 0) {
+                        boss.current.hp -= b.damage;
+                        spawnParticles(boss.current.pos, '#22c55e', 1, 2);
+                    }
+                } else {
+                    const dist = Math.sqrt((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2);
+                    if (dist < b.size && frameCount.current % 10 === 0) {
+                        if (p.invincibilityTimer <= 0) p.hp -= b.damage;
+                    }
                 }
             }
 
@@ -2636,6 +2656,22 @@ export const GameCanvas: React.FC = () => {
 
             b.pos.x += b.vel.x; b.pos.y += b.vel.y;
             b.lifetime--;
+
+            // Bounce Logic for Player Bullets (Rainbow Beam / Bounce effect)
+            if (!b.isEnemy && b.maxBounces !== undefined && b.bounces !== undefined) {
+                const groundY = currentChapter.current === 3 ? CH3_PHYSICS.groundY : CANVAS_HEIGHT;
+                if (b.pos.x <= 0 || b.pos.x >= CANVAS_WIDTH) {
+                    b.vel.x *= -1;
+                    b.bounces++;
+                    spawnParticles(b.pos, b.color, 3, 2);
+                }
+                if (b.pos.y <= 0 || b.pos.y >= groundY) {
+                    b.vel.y *= -1;
+                    b.bounces++;
+                    spawnParticles(b.pos, b.color, 3, 2);
+                }
+                if (b.bounces > b.maxBounces) b.lifetime = 0;
+            }
 
             // Gaster Blaster logic
             if (b.isEnemy && b.isBlaster) {
