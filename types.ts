@@ -150,7 +150,7 @@ export interface Bullet extends Entity {
   curve?: number;
 
   // Special Properties
-  effect?: 'SLOW' | 'BURN' | 'FREEZE' | 'GRAVITY' | 'EMP' | 'REALITY_BREAK' | 'MELEE_ORB' | 'GAS' | 'CARTOON_HIT' | 'WAVE' | 'GLOW' | 'SPIRAL' | 'SLOW_PLAYER' | 'HOMING_SOFT';
+  effect?: 'SLOW' | 'BURN' | 'FREEZE' | 'GRAVITY' | 'EMP' | 'REALITY_BREAK' | 'MELEE_ORB' | 'GAS' | 'CARTOON_HIT' | 'WAVE' | 'GLOW' | 'SPIRAL' | 'SLOW_PLAYER' | 'HOMING_SOFT' | 'BOOMERANG';
   homing?: boolean;
   isMine?: boolean;
   mineTimer?: number;

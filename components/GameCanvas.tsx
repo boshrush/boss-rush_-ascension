@@ -504,7 +504,7 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed * 0.8, y: dirY * p.projectileSpeed * 0.8 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
                 break;
             case 'BOOMERANG':
-                bullets.current.push({ pos, vel: { x: dirX * 12, y: dirY * 12 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, homing: true }); // Returns via homing or simple flip
+                bullets.current.push({ pos, vel: { x: dirX * 12, y: dirY * 12 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, effect: 'BOOMERANG' });
                 break;
             case 'POISON':
                 bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 15, color: '#22c55e', isEnemy: false, damage: damage * 0.2, lifetime: 200, effect: 'GAS' });
@@ -2652,6 +2652,21 @@ export const GameCanvas: React.FC = () => {
             // Apply Gravity Effect (Physics)
             if (b.isEnemy && b.effect === 'GRAVITY') {
                 b.vel.y += 0.15;
+            }
+
+            // Boomerang Return Logic
+            if (b.effect === 'BOOMERANG' && !b.isEnemy) {
+                if (b.lifetime < 60) { // Halfway through its life
+                    const angle = Math.atan2(p.pos.y - b.pos.y, p.pos.x - b.pos.x);
+                    const speed = 12;
+                    b.vel.x += Math.cos(angle) * 1.5;
+                    b.vel.y += Math.sin(angle) * 1.5;
+                    const curSpeed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
+                    if (curSpeed > speed) {
+                        b.vel.x = (b.vel.x / curSpeed) * speed;
+                        b.vel.y = (b.vel.y / curSpeed) * speed;
+                    }
+                }
             }
 
             b.pos.x += b.vel.x; b.pos.y += b.vel.y;
