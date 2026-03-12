@@ -2135,8 +2135,14 @@ export const GameCanvas: React.FC = () => {
         }
     };
 
-    const handleAdminLogin = () => {
-        if (passwordInput === 'diegoesputo') {
+    const handleAdminLogin = async () => {
+        const inputBytes = new TextEncoder().encode(passwordInput);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', inputBytes);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // The hash below corresponds to the current admin password
+        if (hashHex === '0e22f99d0c1af8fbeae27ba0db4338fa3863e7242d0562cdd1df437ede42fa81') {
             isAdminAuthenticated.current = true;
             setUiState(GameState.ADMIN);
             setPasswordInput('');
