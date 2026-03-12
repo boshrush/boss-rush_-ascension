@@ -107,6 +107,8 @@ export interface Player extends Entity {
   parryTimer?: number;
   parryCooldown?: number;
   lastCh3Facing?: number;
+  ch3RollingTimer?: number;
+  ch3RollingCooldown?: number;
 }
 
 export interface Boss extends Entity {

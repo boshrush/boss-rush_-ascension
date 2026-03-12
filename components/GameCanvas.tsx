@@ -406,6 +406,8 @@ export const GameCanvas: React.FC = () => {
             ch3Jumping: false,
             ch3Crouching: false,
             parryTimer: 0,
+            ch3RollingTimer: 0,
+            ch3RollingCooldown: 0,
             playAreaScale: 1.0
         };
 
@@ -502,43 +504,46 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed * 0.8, y: dirY * p.projectileSpeed * 0.8 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
                 break;
             case 'BOOMERANG':
-                bullets.current.push({ pos, vel: { x: 12, y: 0 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, homing: true }); // Returns via homing or simple flip
+                bullets.current.push({ pos, vel: { x: dirX * 12, y: dirY * 12 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, homing: true }); // Returns via homing or simple flip
                 break;
             case 'POISON':
-                bullets.current.push({ pos, vel: { x: 5, y: 0 }, size: 15, color: '#22c55e', isEnemy: false, damage: damage * 0.2, lifetime: 200, effect: 'GAS' });
+                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 15, color: '#22c55e', isEnemy: false, damage: damage * 0.2, lifetime: 200, effect: 'GAS' });
                 break;
             case 'BOUNCE':
-                bullets.current.push({ pos, vel: { x: 10, y: 5 }, size: 8, color: '#60a5fa', isEnemy: false, damage, lifetime: 300, bounces: 0, maxBounces: 5 });
+                bullets.current.push({ pos, vel: { x: dirX * 10, y: dirY * 10 }, size: 8, color: '#60a5fa', isEnemy: false, damage, lifetime: 300, bounces: 0, maxBounces: 5 });
                 break;
             case 'SPREAD':
                 for (let i = 0; i < 6; i++) {
-                    const angle = (Math.random() - 0.5) * 0.8;
+                    const baseAngle = Math.atan2(dirY, dirX);
+                    const angle = baseAngle + (Math.random() - 0.5) * 0.8;
                     bullets.current.push({ pos, vel: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 }, size: 6, color: '#fff', isEnemy: false, damage: damage * 0.5, lifetime: 80 });
                 }
                 break;
             case 'TRIPLE':
+                const tripleBaseAngle = Math.atan2(dirY, dirX);
                 for (let i = -1; i <= 1; i++) {
-                    bullets.current.push({ pos, vel: { x: 12, y: i * 3 }, size: 8, color: '#ef4444', isEnemy: false, damage, lifetime: 100 });
+                    const angle = tripleBaseAngle + i * 0.2;
+                    bullets.current.push({ pos, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 8, color: '#ef4444', isEnemy: false, damage, lifetime: 100 });
                 }
                 break;
             case 'FREEZE':
-                bullets.current.push({ pos, vel: { x: 15, y: 0 }, size: 12, color: '#bae6fd', isEnemy: false, damage: damage * 0.5, lifetime: 100, effect: 'FREEZE' });
+                bullets.current.push({ pos, vel: { x: dirX * 15, y: dirY * 15 }, size: 12, color: '#bae6fd', isEnemy: false, damage: damage * 0.5, lifetime: 100, effect: 'FREEZE' });
                 break;
             case 'HOMING':
-                bullets.current.push({ pos, vel: { x: 8, y: 0 }, size: 10, color: '#c084fc', isEnemy: false, damage, lifetime: 200, homing: true });
+                bullets.current.push({ pos, vel: { x: dirX * 8, y: dirY * 8 }, size: 10, color: '#c084fc', isEnemy: false, damage, lifetime: 200, homing: true });
                 break;
             case 'STICKY':
-                bullets.current.push({ pos, vel: { x: 10, y: 0 }, size: 8, color: '#f472b6', isEnemy: false, damage: damage * 0.5, lifetime: 300, attachedToBoss: false, isMine: true }); // Using Mine logic for sticky
+                bullets.current.push({ pos, vel: { x: dirX * 10, y: dirY * 10 }, size: 8, color: '#f472b6', isEnemy: false, damage: damage * 0.5, lifetime: 300, attachedToBoss: false, isMine: true }); // Using Mine logic for sticky
                 break;
             case 'WAVE':
-                bullets.current.push({ pos, vel: { x: 8, y: 0 }, size: 100, color: 'rgba(255,255,255,0.2)', isEnemy: false, damage: damage * 1.5, lifetime: 40 });
+                bullets.current.push({ pos, vel: { x: dirX * 8, y: dirY * 8 }, size: 100, color: 'rgba(255,255,255,0.2)', isEnemy: false, damage: damage * 1.5, lifetime: 40 });
                 break;
             case 'HEAVY':
-                bullets.current.push({ pos, vel: { x: 5, y: 0 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150 });
+                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150 });
                 shakeIntensity.current = 10;
                 break;
             case 'MELEE':
-                bullets.current.push({ pos, vel: { x: 2, y: 0 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15 });
+                bullets.current.push({ pos, vel: { x: dirX * 2, y: dirY * 2 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15 });
                 break;
             case 'THUNDER':
                 if (b) {
@@ -554,8 +559,8 @@ export const GameCanvas: React.FC = () => {
                 }
                 break;
             case 'MIRROR':
-                bullets.current.push({ pos, vel: { x: p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
-                bullets.current.push({ pos: { x: p.pos.x - 25, y: pos.y }, vel: { x: -p.projectileSpeed, y: 0 }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
+                bullets.current.push({ pos, vel: { x: p.projectileSpeed * dirX, y: p.projectileSpeed * dirY }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
+                bullets.current.push({ pos: { x: p.pos.x - 25 * dirX, y: p.pos.y - 25 * dirY }, vel: { x: -p.projectileSpeed * dirX, y: -p.projectileSpeed * dirY }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'TIME_STOP':
                 bullets.current.forEach(bul => { if (bul.isEnemy) bul.vel = { x: bul.vel.x * 0.1, y: bul.vel.y * 0.1 }; });
@@ -563,7 +568,7 @@ export const GameCanvas: React.FC = () => {
                 p.secondaryCooldownTimer = 1800; // 30s
                 break;
             case 'ULTIMATE':
-                bullets.current.push({ pos, vel: { x: 4, y: 0 }, size: 150, color: 'rgba(239, 68, 68, 0.4)', isEnemy: false, damage: damage * 10, lifetime: 300, piercing: true });
+                bullets.current.push({ pos, vel: { x: dirX * 4, y: dirY * 4 }, size: 150, color: 'rgba(239, 68, 68, 0.4)', isEnemy: false, damage: damage * 10, lifetime: 300, piercing: true });
                 p.secondaryCooldownTimer = 999999; // 1 use per life
                 break;
         }
@@ -1202,22 +1207,6 @@ export const GameCanvas: React.FC = () => {
         if (!b) return;
 
         b.attackTimer++;
-
-        // --- MELEE PARRY ORB ---
-        // If boss gets too close, occasionally spawn a melee orb to parry-jump away
-        if (frameCount.current % 80 === 0) {
-            const dx = p.pos.x - b.pos.x;
-            const dy = p.pos.y - b.pos.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < 220) {
-                bullets.current.push({
-                    pos: { x: b.pos.x + dx * 0.5, y: b.pos.y + dy * 0.5 },
-                    vel: { x: 0, y: 0 },
-                    size: 35, color: '#ff00ff', isEnemy: true, damage: 0, lifetime: 90,
-                    isParryable: true, effect: 'MELEE_ORB'
-                });
-            }
-        }
 
         // Phase Transitions
         if (b.hp < b.maxHp * 0.3 && b.phase === 2) {
@@ -2227,20 +2216,27 @@ export const GameCanvas: React.FC = () => {
             p.size = 20; // Normal hit box
         }
 
-        // Parry Logic
-        if (p.parryCooldown && p.parryCooldown > 0) p.parryCooldown--;
-        if (p.parryTimer && p.parryTimer > 0) {
-            p.parryTimer--;
-            if (frameCount.current % 3 === 0) spawnParticles(p.pos, '#fbcfe8', 2, 2); // Pink Sparkles
+        // Roll/Dodge Logic
+        if (p.ch3RollingCooldown && p.ch3RollingCooldown > 0) p.ch3RollingCooldown--;
+        if (p.ch3RollingTimer && p.ch3RollingTimer > 0) {
+            p.ch3RollingTimer--;
+            p.invincibilityTimer = 2; // Invincible during roll
+            const rollSpeedMultiplier = 2.5;
+            p.vel.x = (p.lastCh3Facing || 1) * physics.moveSpeed * rollSpeedMultiplier;
+            if (frameCount.current % 2 === 0) spawnParticles(p.pos, p.color, 1, 1);
         }
 
         if (keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')) {
-            if ((!p.parryCooldown || p.parryCooldown <= 0) && (!p.parryTimer || p.parryTimer <= 0)) {
-                p.parryTimer = 15; // 15 frames of parry window
-                p.parryCooldown = 60; // 1 second cooldown
-                spawnParticles(p.pos, '#ec4899', 15, 4); // Parry start burst
+            if ((!p.ch3RollingCooldown || p.ch3RollingCooldown <= 0) && (!p.ch3RollingTimer || p.ch3RollingTimer <= 0)) {
+                p.ch3RollingTimer = 20; // 20 frames of rolling
+                p.ch3RollingCooldown = 60; // 1 second cooldown
+                spawnParticles(p.pos, '#fff', 10, 3);
             }
         }
+
+        // Parry Logic (Cleanup)
+        p.parryTimer = 0;
+        p.parryCooldown = 0;
 
         // Jump (Only Space for Chapter 3 as requested)
         const wantsToJump = keys.current.has('Space');
@@ -3157,6 +3153,11 @@ export const GameCanvas: React.FC = () => {
                 ctx.translate(px, py + (isCrouching ? 5 : 0));
                 ctx.scale(dir, 1); // Flip based on direction
 
+                // Roll rotation
+                if (p.ch3RollingTimer && p.ch3RollingTimer > 0) {
+                    ctx.rotate((20 - p.ch3RollingTimer) * 0.4);
+                }
+
                 // Thick Outline Style for everything
                 ctx.lineJoin = 'round';
                 ctx.lineCap = 'round';
@@ -3872,8 +3873,13 @@ export const GameCanvas: React.FC = () => {
 
                                 {/* CARTOON HUD BOTTOM (Weapons & Coins) */}
                                 <div className="flex justify-between items-end w-full">
-                                    <div className="flex items-center gap-2 bg-yellow-400 px-4 py-2 border-4 border-black rounded-lg shadow-lg rotate-3">
-                                        <span className="text-black font-black text-2xl italic">${ch3CoinsUI}</span>
+                                    <div className="flex flex-col gap-2 items-start">
+                                        <div className="flex items-center gap-2 bg-yellow-400 px-4 py-2 border-4 border-black rounded-lg shadow-lg rotate-3">
+                                            <span className="text-black font-black text-2xl italic">${ch3CoinsUI}</span>
+                                        </div>
+                                        <div className={`px-3 py-1 border-4 border-black rounded-md shadow-md -rotate-2 text-xs font-black transition-colors ${(!player.current.ch3RollingCooldown || player.current.ch3RollingCooldown <= 0) ? 'bg-white text-black' : 'bg-slate-400 text-slate-700'}`}>
+                                            SHIFT: ROLL {(!player.current.ch3RollingCooldown || player.current.ch3RollingCooldown <= 0) ? 'READY' : 'WAIT'}
+                                        </div>
                                     </div>
 
                                     <div className="flex gap-4">
