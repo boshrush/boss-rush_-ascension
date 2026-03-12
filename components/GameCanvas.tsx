@@ -1493,10 +1493,13 @@ export const GameCanvas: React.FC = () => {
                 } else if (attackType === 3 && b.phase >= 2) {
                     // Phase 2/3 New: Cookie March (Rolling projectiles)
                     for (let i = 0; i < 2; i++) {
+                        const fromRight = Math.random() > 0.5;
+                        const spawnX = fromRight ? CANVAS_WIDTH : 0;
+                        const velX = fromRight ? -6 - Math.random() * 4 : 6 + Math.random() * 4;
                         bullets.current.push({
-                            pos: { x: CANVAS_WIDTH + 50, y: CH3_PHYSICS.groundY - 20 },
-                            vel: { x: -6 - Math.random() * 4, y: 0 },
-                            size: 30, color: '#92400e', isEnemy: true, damage: 20, lifetime: 200, effect: 'SPIRAL' // Using spiral as a rotation visual
+                            pos: { x: spawnX, y: CH3_PHYSICS.groundY - 30 },
+                            vel: { x: velX, y: 0 },
+                            size: 30, color: '#92400e', isEnemy: true, damage: 20, lifetime: 200, effect: 'SPIRAL'
                         });
                     }
                 }
