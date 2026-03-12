@@ -4157,32 +4157,32 @@ export const GameCanvas: React.FC = () => {
                             <p className="text-slate-400 mt-4 font-mono text-sm tracking-widest italic">CHOOSE AN AUGMENTATION TO PROCEED</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl px-4">
                             {availableUpgrades.map((upg, idx) => (
                                 <button
                                     key={upg.id}
                                     onClick={() => selectUpgrade(upg)}
-                                    className="group relative bg-slate-900/80 border-2 border-slate-800 p-6 rounded-xl flex flex-col items-center text-center hover:border-cyan-500 hover:bg-slate-800 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-[slideUp_0.5s_ease-out] fill-mode-forwards"
-                                    style={{ animationDelay: `${idx * 0.1}s` }}
+                                    className="group relative aspect-square bg-slate-900/80 border-2 border-slate-800 p-8 rounded-2xl flex flex-col items-center justify-center text-center hover:border-cyan-500 hover:bg-slate-800 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_40px_rgba(34,211,238,0.3)] animate-[slideUp_0.5s_ease-out] fill-mode-forwards"
+                                    style={{ animationDelay: `${idx * 0.15}s` }}
                                 >
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-cyan-400 group-hover:border-cyan-500/50 transition-colors">
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-slate-950 border border-slate-700 rounded-full text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] group-hover:text-cyan-400 group-hover:border-cyan-400 transition-colors shadow-lg">
                                         {upg.rarity}
                                     </div>
 
-                                    <div className="w-16 h-16 bg-slate-950 rounded-full border-2 border-slate-800 flex items-center justify-center mb-6 group-hover:border-cyan-500 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.1)] transition-all">
-                                        {getUpgradeIcon(upg.id, 32)}
+                                    <div className="w-20 h-20 bg-slate-950 rounded-2xl border-2 border-slate-800 flex items-center justify-center mb-6 group-hover:border-cyan-500 group-hover:rotate-12 transition-all shadow-inner">
+                                        {getUpgradeIcon(upg.id, 40)}
                                     </div>
 
-                                    <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight group-hover:text-cyan-400 transition-colors">
+                                    <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter group-hover:text-cyan-400 transition-colors">
                                         {upg.name}
                                     </h3>
 
-                                    <div className="text-xs text-slate-400 font-medium leading-relaxed mb-6 group-hover:text-slate-300 transition-colors h-12 flex items-center">
+                                    <div className="text-xs text-slate-400 font-bold leading-relaxed mb-8 group-hover:text-slate-200 transition-colors h-12 flex items-center justify-center px-4">
                                         {upg.description || "Experimental protocol augmentation."}
                                     </div>
 
-                                    <div className="mt-auto w-full py-2 bg-slate-950 rounded font-bold text-[10px] text-cyan-600 uppercase tracking-widest border border-cyan-900 group-hover:bg-cyan-600 group-hover:text-white transition-all">
-                                        Install Protocol
+                                    <div className="mt-4 px-6 py-2.5 bg-cyan-950/50 rounded-lg font-black text-[10px] text-cyan-400 uppercase tracking-widest border border-cyan-800 group-hover:bg-cyan-500 group-hover:text-white group-hover:border-cyan-400 transition-all">
+                                        EQUIP MODULE
                                     </div>
                                 </button>
                             ))}
@@ -4520,22 +4520,22 @@ export const GameCanvas: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="relative grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto pb-8 pr-2">
+                        <div className="relative grid grid-cols-1 md:grid-cols-4 gap-6 overflow-y-auto pb-12 pr-4 scrollbar-hide">
                             {CH3_WEAPONS.map(weapon => {
                                 const isOwned = ch3OwnedUI.includes(weapon.id);
                                 const canAfford = ch3Coins.current >= weapon.price;
 
                                 return (
-                                    <div key={weapon.id} className={`bg-white border-4 p-4 rounded-xl flex flex-col ${isOwned ? 'border-green-500' : 'border-[#92400e]'} shadow-lg`}>
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className="text-[10px] font-bold bg-[#fef3c7] px-2 py-0.5 rounded border border-[#92400e] uppercase text-[#92400e]">{weapon.type}</span>
-                                            <span className="font-black text-xl text-[#92400e]">${weapon.price}</span>
+                                    <div key={weapon.id} className={`bg-white border-4 p-6 rounded-2xl flex flex-col aspect-[4/5] ${isOwned ? 'border-green-500' : 'border-[#92400e]'} shadow-[8px_8px_0px_rgba(146,64,14,0.2)] hover:-translate-y-1 transition-transform`}>
+                                        <div className="flex justify-between items-start mb-4">
+                                            <span className="text-[10px] font-black bg-[#fef3c7] px-2 py-1 rounded border-2 border-[#92400e] uppercase text-[#92400e]">{weapon.type}</span>
+                                            <span className="font-black text-2xl text-[#92400e]">${weapon.price}</span>
                                         </div>
-                                        <h3 className="text-xl font-black text-[#451a03] mb-1 uppercase tracking-tight">{weapon.name}</h3>
-                                        <p className="text-xs text-[#78350f] font-bold leading-tight flex-1 mb-4">{weapon.description}</p>
+                                        <h3 className="text-2xl font-black text-[#451a03] mb-2 uppercase tracking-tighter leading-none">{weapon.name}</h3>
+                                        <p className="text-xs text-[#78350f] font-bold leading-snug flex-1 mb-6">{weapon.description}</p>
 
                                         {isOwned ? (
-                                            <div className="w-full py-2 bg-green-100 text-green-700 font-extrabold text-center rounded border-2 border-green-500 uppercase">OWNED</div>
+                                            <div className="w-full py-3 bg-green-100 text-green-700 font-black text-center rounded-xl border-2 border-green-500 uppercase tracking-widest">OWNED</div>
                                         ) : (
                                             <button
                                                 disabled={!canAfford}
@@ -4547,9 +4547,9 @@ export const GameCanvas: React.FC = () => {
                                                     localStorage.setItem('chapter3_coins', ch3Coins.current.toString());
                                                     localStorage.setItem('chapter3_weapons_owned', JSON.stringify(ch3WeaponsOwned.current));
                                                 }}
-                                                className={`w-full py-2 font-black rounded border-b-4 transition-all ${canAfford ? 'bg-yellow-400 border-yellow-700 hover:bg-yellow-300' : 'bg-slate-300 border-slate-400 text-slate-500 cursor-not-allowed'}`}
+                                                className={`w-full py-3 font-black rounded-xl border-b-[6px] transition-all active:border-b-0 active:translate-y-1 ${canAfford ? 'bg-yellow-400 border-yellow-700 hover:bg-yellow-300 text-[#78350f]' : 'bg-slate-200 border-slate-400 text-slate-400 cursor-not-allowed'}`}
                                             >
-                                                BUY
+                                                BUY MODULE
                                             </button>
                                         )}
                                     </div>
