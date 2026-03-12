@@ -4563,20 +4563,24 @@ export const GameCanvas: React.FC = () => {
                     <div className="absolute inset-0 bg-[#dcfce7] flex flex-col p-8 z-50 pointer-events-auto overflow-hidden border-[12px] border-[#166534]">
                         <h2 className="text-6xl font-black text-[#14532d] mb-8 italic" style={{ textShadow: '3px 3px 0px #fff' }}>GEAR UP!</h2>
 
-                        <div className="flex gap-8 h-full">
+                        <div className="flex gap-8 h-[calc(100%-80px)]">
                             {/* Owned List */}
-                            <div className="w-1/2 bg-white/50 rounded-2xl p-6 border-4 border-[#166534] flex flex-col">
-                                <h3 className="text-2xl font-black text-[#166534] mb-4 underline">COLLECTION</h3>
-                                <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-2">
+                            <div className="w-1/2 bg-white/60 rounded-3xl p-8 border-4 border-[#166534] flex flex-col shadow-[inset_0_2px_10px_rgba(0,0,0,0.1)]">
+                                <h3 className="text-3xl font-black text-[#166534] mb-6 underline decoration-4 underline-offset-8 italic">COLLECTION</h3>
+                                <div className="flex-1 grid grid-cols-2 gap-4 overflow-y-auto pr-4 scrollbar-hide">
                                     {ch3OwnedUI.map(id => {
                                         const weapon = CH3_WEAPONS.find(w => w.id === id);
                                         const isEquippedA = ch3LoadoutUI[0] === id;
                                         const isEquippedB = ch3LoadoutUI[1] === id;
 
                                         return (
-                                            <div key={id} className={`p-3 rounded-lg border-2 ${isEquippedA || isEquippedB ? 'bg-yellow-200 border-yellow-600' : 'bg-white border-[#166534]'} flex flex-col gap-2`}>
-                                                <div className="font-bold text-[#14532d] uppercase text-sm">{weapon?.name}</div>
-                                                <div className="flex gap-1">
+                                            <div key={id} className={`p-4 rounded-2xl border-4 aspect-square flex flex-col justify-between transition-all ${isEquippedA || isEquippedB ? 'bg-yellow-100 border-yellow-500 shadow-lg scale-[0.98]' : 'bg-white border-[#166534] hover:border-green-600 shadow-md'}`}>
+                                                <div>
+                                                    <div className="font-black text-[#14532d] uppercase text-sm leading-none bg-green-50 px-2 py-1 rounded inline-block mb-2">{weapon?.name}</div>
+                                                    <div className="text-[10px] text-[#166534] font-bold opacity-70 uppercase tracking-tighter">{weapon?.type}</div>
+                                                </div>
+
+                                                <div className="flex flex-col gap-2 mt-auto">
                                                     <button
                                                         onClick={() => {
                                                             const newLoadout: [number, number] = [id, ch3Loadout.current[1]];
@@ -4584,9 +4588,9 @@ export const GameCanvas: React.FC = () => {
                                                             setCh3LoadoutUI(newLoadout);
                                                             localStorage.setItem('chapter3_loadout', JSON.stringify(newLoadout));
                                                         }}
-                                                        className={`flex-1 py-1 text-[10px] font-black rounded ${isEquippedA ? 'bg-yellow-600 text-white' : 'bg-white border border-yellow-600 text-yellow-700'}`}
+                                                        className={`w-full py-2 text-[10px] font-black rounded-lg border-b-4 transition-all active:border-b-0 active:translate-y-1 ${isEquippedA ? 'bg-yellow-500 border-yellow-800 text-yellow-900' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50'}`}
                                                     >
-                                                        SLOT A
+                                                        EQUIP SLOT A
                                                     </button>
                                                     <button
                                                         onClick={() => {
@@ -4595,9 +4599,9 @@ export const GameCanvas: React.FC = () => {
                                                             setCh3LoadoutUI(newLoadout);
                                                             localStorage.setItem('chapter3_loadout', JSON.stringify(newLoadout));
                                                         }}
-                                                        className={`flex-1 py-1 text-[10px] font-black rounded ${isEquippedB ? 'bg-yellow-600 text-white' : 'bg-white border border-yellow-600 text-yellow-700'}`}
+                                                        className={`w-full py-2 text-[10px] font-black rounded-lg border-b-4 transition-all active:border-b-0 active:translate-y-1 ${isEquippedB ? 'bg-yellow-500 border-yellow-800 text-yellow-900' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50'}`}
                                                     >
-                                                        SLOT B
+                                                        EQUIP SLOT B
                                                     </button>
                                                 </div>
                                             </div>
