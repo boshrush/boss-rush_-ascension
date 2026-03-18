@@ -316,6 +316,9 @@ export const GameCanvas: React.FC = () => {
             reward: config.reward || 0,
             slowTimer: 0,
             freezeTimer: 0,
+            fireAccumulation: 0,
+            iceAccumulation: 0,
+            fireTimer: 0,
             modifiers: { damage: Math.pow(3, newGamePlusCount.current), fireRate: 1, moveSpeed: 1 }, // NG+ damage multiplier
             tentacles: configIndex === 4 && currentChapter.current === 1 ? Array(8).fill(0).map((_, i) => ({ angle: (Math.PI * 2 / 8) * i, length: 0, phase: i })) : undefined,
             realityGlitch: 0
@@ -533,7 +536,7 @@ export const GameCanvas: React.FC = () => {
                 const tripleBaseAngle = Math.atan2(dirY, dirX);
                 for (let i = -1; i <= 1; i++) {
                     const angle = tripleBaseAngle + i * 0.2;
-                    bullets.current.push({ pos, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 8, color: '#ef4444', isEnemy: false, damage, lifetime: 100 });
+                    bullets.current.push({ pos, vel: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 }, size: 8, color: '#ef4444', isEnemy: false, damage, lifetime: 100, effect: 'BURN' });
                 }
                 break;
             case 'FREEZE':
@@ -549,7 +552,7 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * 8, y: dirY * 8 }, size: 100, color: 'rgba(255,255,255,0.2)', isEnemy: false, damage: damage * 1.5, lifetime: 40 });
                 break;
             case 'HEAVY':
-                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150 });
+                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150, effect: 'BURN' });
                 shakeIntensity.current = 10;
                 break;
             case 'MELEE':
@@ -1227,6 +1230,26 @@ export const GameCanvas: React.FC = () => {
             b.phase = 2;
             spawnParticles(b.pos, '#fff', 30, 8);
             shakeIntensity.current = 15;
+        }
+
+        // --- ELEMENTAL STATUSES (Ch3 Only) ---
+        // Decay accumulation bars over time so they drain if you stop hitting
+        if (b.fireAccumulation !== undefined && b.fireAccumulation > 0) b.fireAccumulation = Math.max(0, b.fireAccumulation - 0.15);
+        if (b.iceAccumulation !== undefined && b.iceAccumulation > 0) b.iceAccumulation = Math.max(0, b.iceAccumulation - 0.2);
+
+        // Burn: deals damage over time and spawns fire particles
+        if (b.fireTimer !== undefined && b.fireTimer > 0) {
+            b.fireTimer--;
+            if (b.fireTimer % 8 === 0) {
+                b.hp = Math.max(0, b.hp - p.damage * 0.3);
+                spawnParticles({ x: b.pos.x + (Math.random() - 0.5) * b.size, y: b.pos.y - b.size * 0.5 }, '#f97316', 3, 3);
+            }
+        }
+
+        // Freeze: boss moves slower (handled in speed calcs) and freezeTimer ticks down
+        if (b.freezeTimer !== undefined && b.freezeTimer > 0) {
+            b.freezeTimer--;
+            if (b.freezeTimer % 12 === 0) spawnParticles(b.pos, '#bae6fd', 2, 2);
         }
 
         // --- BOSS 1: MORTIMER EL PAYASO (Clown) ---
@@ -2941,6 +2964,27 @@ export const GameCanvas: React.FC = () => {
 
                         let damageDealt = b.damage;
                         if (boss.current.freezeTimer > 0) damageDealt *= 2;
+
+                        // --- Elemental Accumulation (Ch3) ---
+                        if (currentChapter.current === 3) {
+                            if (b.effect === 'BURN') {
+                                boss.current.fireAccumulation = (boss.current.fireAccumulation || 0) + 1;
+                                if (boss.current.fireAccumulation >= 100) {
+                                    boss.current.fireAccumulation = 0;
+                                    boss.current.fireTimer = 300; // 5 seconds of burn
+                                    spawnParticles(boss.current.pos, '#f97316', 20, 5);
+                                }
+                            }
+                            if (b.effect === 'FREEZE') {
+                                boss.current.iceAccumulation = (boss.current.iceAccumulation || 0) + 2; // Buildup faster
+                                if (boss.current.iceAccumulation >= 100) {
+                                    boss.current.iceAccumulation = 0;
+                                    boss.current.freezeTimer = 180; // 3 seconds of freeze
+                                    spawnParticles(boss.current.pos, '#bae6fd', 30, 3);
+                                }
+                            }
+                        }
+
                         boss.current.hp = Math.max(0, boss.current.hp - damageDealt);
                         spawnParticles(b.pos, b.color, 2, 3);
 
@@ -3602,6 +3646,54 @@ export const GameCanvas: React.FC = () => {
             }
 
             if (b.freezeTimer > 0) { ctx.strokeStyle = '#bae6fd'; ctx.lineWidth = 4; ctx.strokeRect(bx - b.size - 10, by - b.size - 10, b.size * 2 + 20, b.size * 2 + 20); }
+
+            // --- ELEMENTAL STATUS BARS (Ch3 Only) ---
+            if (currentChapter.current === 3) {
+                const barW = 120;
+                const barH = 8;
+                const barX = b.pos.x - barW / 2;
+                let barY = b.pos.y + b.size + 20;
+
+                const drawStatusBar = (label: string, value: number, max: number, fillColor: string, bgColor: string, isActive: boolean, activeLabel: string) => {
+                    // Background
+                    ctx.globalAlpha = 0.85;
+                    ctx.fillStyle = '#1a0000';
+                    ctx.beginPath();
+                    ctx.roundRect(barX - 2, barY - 2, barW + 4, barH + 10, 4);
+                    ctx.fill();
+
+                    // Bar background
+                    ctx.fillStyle = bgColor;
+                    ctx.fillRect(barX, barY, barW, barH);
+
+                    // Fill
+                    ctx.fillStyle = fillColor;
+                    const fillW = barW * Math.min(1, value / max);
+                    if (fillW > 0) ctx.fillRect(barX, barY, fillW, barH);
+
+                    // Active status overlay
+                    if (isActive) {
+                        const pulse = 0.6 + Math.sin(frameCount.current * 0.2) * 0.4;
+                        ctx.globalAlpha = pulse;
+                        ctx.fillStyle = fillColor;
+                        ctx.fillRect(barX, barY, barW, barH);
+                        ctx.globalAlpha = 0.85;
+                    }
+
+                    // Label
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 8px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(isActive ? activeLabel : label, barX + barW / 2, barY + barH - 1);
+                    ctx.textAlign = 'left';
+                    barY += barH + 10;
+                };
+
+                drawStatusBar('🔥 FUEGO', b.fireAccumulation || 0, 100, '#f97316', '#450a00', (b.fireTimer || 0) > 0, '🔥 ARDIENDO!');
+                drawStatusBar('🧊 HIELO', b.iceAccumulation || 0, 100, '#7dd3fc', '#0c1a2e', (b.freezeTimer || 0) > 0, '🧊 CONGELADO!');
+                ctx.globalAlpha = 1;
+            }
         }
 
         // --- BATCH RENDER BULLETS (OPTIMIZATION) ---

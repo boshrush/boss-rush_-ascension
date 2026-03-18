@@ -140,6 +140,19 @@ export interface Boss extends Entity {
   // Chapter 2 Properties
   forceNoIframes?: boolean;
   glitchTimer?: number;
+
+  // Chapter 3 Elemental Status (Progress Bars)
+  fireAccumulation?: number;
+  iceAccumulation?: number;
+  fireTimer?: number;
+
+  // Chapter 3 Combat Status
+  stunAccumulation?: number;
+  paralysisAccumulation?: number;
+  poisonAccumulation?: number;
+  stunTimer?: number;
+  paralysisTimer?: number;
+  poisonTimer?: number;
 }
 
 export interface Bullet extends Entity {
