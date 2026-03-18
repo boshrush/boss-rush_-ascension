@@ -2525,6 +2525,7 @@ export const GameCanvas: React.FC = () => {
         if (gameState.current !== GameState.PLAYING) return;
         frameCount.current++;
         const p = player.current;
+        const isTimeStopped = p.ch3TimeStopTimer && p.ch3TimeStopTimer > 0;
 
         if (p.godMode) {
             p.hp = p.maxHp;
@@ -2656,8 +2657,6 @@ export const GameCanvas: React.FC = () => {
         if (currentChapter.current === 1) handleBossLogic();
         else if (currentChapter.current === 2) handleCh2BossLogic();
         else if (currentChapter.current === 3) {
-            const isTimeStopped = p.ch3TimeStopTimer && p.ch3TimeStopTimer > 0;
-
             if (!isTimeStopped) {
                 handleCh3BossLogic();
             }
@@ -2890,7 +2889,10 @@ export const GameCanvas: React.FC = () => {
                 }
             }
 
-            b.pos.x += b.vel.x; b.pos.y += b.vel.y;
+            // Time Stop: Enemy bullets freeze
+            if (!(isTimeStopped && b.isEnemy)) {
+                b.pos.x += b.vel.x; b.pos.y += b.vel.y;
+            }
             b.lifetime--;
 
             // Bounce Logic for Player Bullets (Rainbow Beam / Bounce effect)
@@ -3256,12 +3258,18 @@ export const GameCanvas: React.FC = () => {
 
     const draw = (ctx: CanvasRenderingContext2D) => {
         const p = player.current;
+        const isTimeStopped = p.ch3TimeStopTimer && p.ch3TimeStopTimer > 0;
+
+        ctx.save();
+        if (isTimeStopped) {
+            ctx.filter = 'grayscale(100%) brightness(1.2) contrast(0.8)';
+        }
         const isRiftActive = currentBossIndex.current === 5 && (isAdminAuthenticated.current || secretRiftActive.current);
         const distToRift = isRiftActive ? Math.sqrt((p.pos.x - (422 + ch2BoxOffsetX.current)) ** 2 + (p.pos.y - 385) ** 2) : 999;
         const isInRiftSafeZone = isRiftActive && distToRift < 18;
 
         // --- GLOBAL TRANSFORMS ---
-        ctx.save();
+        // (ctx.save already called above)
         if (p.screenRotation !== 0) {
             ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
             ctx.rotate(p.screenRotation);
@@ -4333,6 +4341,18 @@ export const GameCanvas: React.FC = () => {
                                         <div className={`px-3 py-1 border-4 border-black rounded-md shadow-md -rotate-2 text-xs font-black transition-colors ${(!player.current.ch3RollingCooldown || player.current.ch3RollingCooldown <= 0) ? 'bg-white text-black' : 'bg-slate-400 text-slate-700'}`}>
                                             SHIFT: ROLL {(!player.current.ch3RollingCooldown || player.current.ch3RollingCooldown <= 0) ? 'READY' : 'WAIT'}
                                         </div>
+                                        {/* SECONDARY WEAPON COOLDOWN */}
+                                        {player.current.secondaryWeapon !== 'NONE' && (
+                                            <div className="w-48 h-6 bg-white border-4 border-black rotate-1 relative overflow-hidden mt-1 shadow-md">
+                                                <div
+                                                    className="h-full bg-purple-500"
+                                                    style={{ width: `${100 - (player.current.secondaryCooldownTimer / 1800) * 100}%` }}
+                                                />
+                                                <div className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-black uppercase">
+                                                    {player.current.secondaryCooldownTimer > 0 ? 'RECHARGING' : 'ABILITY READY'}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex gap-4">
