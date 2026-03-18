@@ -574,7 +574,6 @@ export const GameCanvas: React.FC = () => {
             case 'MIRROR':
                 p.ch3MirrorTimer = 180; // 3 seconds of reflection
                 bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
-                bullets.current.push({ pos: { x: p.pos.x - 25 * dirX, y: p.pos.y - 25 * dirY }, vel: { x: -p.projectileSpeed * dirX, y: -p.projectileSpeed * dirY }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'TIME_STOP':
                 bullets.current.forEach(bul => { if (bul.isEnemy) bul.vel = { x: bul.vel.x * 0.1, y: bul.vel.y * 0.1 }; });
@@ -1283,7 +1282,12 @@ export const GameCanvas: React.FC = () => {
             const freq = b.phase === 3 ? 35 : (b.phase === 2 ? 55 : 75);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+                let attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+
+                // Mirror Counter: Prioritize Bumper Car Charge
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0 && Math.random() > 0.3) {
+                    attackType = 2;
+                }
 
                 if (attackType === 0) {
                     // Juggling Balls
@@ -1366,7 +1370,12 @@ export const GameCanvas: React.FC = () => {
             const freq = b.phase === 3 ? 25 : (b.phase === 2 ? 40 : 55);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+                let attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+
+                // Mirror Counter: Prioritize Cloak Sweep
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0 && Math.random() > 0.3) {
+                    attackType = 2;
+                }
 
                 if (attackType === 0) {
                     // Bats (Homing Sweep)
@@ -1438,7 +1447,12 @@ export const GameCanvas: React.FC = () => {
             const freq = b.phase === 3 ? 25 : (b.phase === 2 ? 40 : 55);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+                let attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+
+                // Mirror Counter: Prioritize Root Surge
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0 && Math.random() > 0.3) {
+                    attackType = 2;
+                }
 
                 if (attackType === 0) {
                     // Seed Spitting (Multi-shot)
@@ -1509,7 +1523,13 @@ export const GameCanvas: React.FC = () => {
             const freq = b.phase === 3 ? 15 : (b.phase === 2 ? 30 : 45);
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+                let attackType = Math.floor(Math.random() * (b.phase >= 2 ? 4 : 3));
+
+                // Mirror Counter: Prioritize Sticky/Spiral and move in
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0) {
+                    b.targetPos = { x: p.pos.x + (p.pos.x < b.pos.x ? 50 : -50), y: p.pos.y };
+                    attackType = Math.random() > 0.5 ? 1 : 2;
+                }
 
                 if (attackType === 0) {
                     // Candy Rain (Parabolic)
@@ -1566,14 +1586,21 @@ export const GameCanvas: React.FC = () => {
 
             // Caramela AI: Glide smoothly
             if (!b.targetPos) b.targetPos = { x: CANVAS_WIDTH * 0.8, y: CANVAS_HEIGHT * 0.5 };
-            if (frameCount.current % 60 === 0) {
-                b.targetPos = {
-                    x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 300)),
-                    y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, b.pos.y + (Math.random() - 0.5) * 300))
-                };
+
+            // Mirror Counter: Move aggressively closer
+            if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0) {
+                b.pos.x += ((p.pos.x + (p.pos.x < b.pos.x ? 50 : -50)) - b.pos.x) * 0.05;
+                b.pos.y += (p.pos.y - b.pos.y) * 0.05;
+            } else {
+                if (frameCount.current % 60 === 0) {
+                    b.targetPos = {
+                        x: Math.max(100, Math.min(CANVAS_WIDTH - 100, b.pos.x + (Math.random() - 0.5) * 300)),
+                        y: Math.max(100, Math.min(CANVAS_HEIGHT - 100, b.pos.y + (Math.random() - 0.5) * 300))
+                    };
+                }
+                b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
+                b.pos.y += (b.targetPos.y - b.pos.y) * 0.015;
             }
-            b.pos.x += (b.targetPos.x - b.pos.x) * 0.015;
-            b.pos.y += (b.targetPos.y - b.pos.y) * 0.015;
         }
 
         // --- BOSS 5: EL GRAN DIABLO SCRATCH (The Devil) ---
