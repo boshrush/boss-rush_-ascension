@@ -576,8 +576,7 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'TIME_STOP':
-                bullets.current.forEach(bul => { if (bul.isEnemy) bul.vel = { x: bul.vel.x * 0.1, y: bul.vel.y * 0.1 }; });
-                if (b) b.slowTimer = 120;
+                p.ch3TimeStopTimer = 180; // 3 seconds
                 p.secondaryCooldownTimer = 1800; // 30s
                 break;
             case 'ULTIMATE':
@@ -2610,6 +2609,7 @@ export const GameCanvas: React.FC = () => {
 
         if (p.invincibilityTimer > 0) p.invincibilityTimer--;
         if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0) p.ch3MirrorTimer--;
+        if (p.ch3TimeStopTimer && p.ch3TimeStopTimer > 0) p.ch3TimeStopTimer--;
         if (p.shootCooldown > 0) p.shootCooldown--;
 
         // Shooting Logic
@@ -2656,7 +2656,11 @@ export const GameCanvas: React.FC = () => {
         if (currentChapter.current === 1) handleBossLogic();
         else if (currentChapter.current === 2) handleCh2BossLogic();
         else if (currentChapter.current === 3) {
-            handleCh3BossLogic();
+            const isTimeStopped = p.ch3TimeStopTimer && p.ch3TimeStopTimer > 0;
+
+            if (!isTimeStopped) {
+                handleCh3BossLogic();
+            }
             // Boss Collision Damage for Chapter 3
             if (boss.current && player.current.invincibilityTimer <= 0 && !player.current.isDashing) {
                 const b = boss.current;

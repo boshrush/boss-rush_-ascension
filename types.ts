@@ -110,6 +110,7 @@ export interface Player extends Entity {
   ch3RollingTimer?: number;
   ch3RollingCooldown?: number;
   ch3MirrorTimer?: number;
+  ch3TimeStopTimer?: number;
   ch3SlotKeyWasDown?: boolean;
 }
 
