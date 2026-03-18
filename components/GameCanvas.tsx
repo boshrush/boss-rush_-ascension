@@ -556,7 +556,7 @@ export const GameCanvas: React.FC = () => {
                 shakeIntensity.current = 10;
                 break;
             case 'MELEE':
-                bullets.current.push({ pos, vel: { x: dirX * 2, y: dirY * 2 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15, effect: 'MELEE' });
+                bullets.current.push({ pos, vel: { x: dirX * 2, y: dirY * 2 }, size: 80, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 10, lifetime: 15, effect: 'MELEE' });
                 break;
             case 'THUNDER':
                 if (b) {
@@ -568,11 +568,12 @@ export const GameCanvas: React.FC = () => {
                 break;
             case 'ORBITAL':
                 for (let i = 0; i < 3; i++) {
-                    bullets.current.push({ pos: { ...p.pos }, vel: { x: i, y: 0 }, size: 15, color: 'rgba(255,255,255,0.3)', isEnemy: false, damage: damage * 0.5, lifetime: 300, isDrone: true, droneSticky: false });
+                    bullets.current.push({ pos: { ...p.pos }, vel: { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5 }, size: 20, color: 'rgba(255,255,255,0.4)', isEnemy: false, damage: damage * 0.5, lifetime: 600, effect: 'GHOST' });
                 }
                 break;
             case 'MIRROR':
-                bullets.current.push({ pos, vel: { x: p.projectileSpeed * dirX, y: p.projectileSpeed * dirY }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
+                p.ch3MirrorTimer = 180; // 3 seconds of reflection
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed, y: dirY * p.projectileSpeed }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
                 bullets.current.push({ pos: { x: p.pos.x - 25 * dirX, y: p.pos.y - 25 * dirY }, vel: { x: -p.projectileSpeed * dirX, y: -p.projectileSpeed * dirY }, size: p.projectileSize, color: '#fff', isEnemy: false, damage, lifetime: 120 });
                 break;
             case 'TIME_STOP':
@@ -1266,7 +1267,12 @@ export const GameCanvas: React.FC = () => {
 
         if (b.paralysisTimer !== undefined && b.paralysisTimer > 0) {
             b.paralysisTimer--;
+            if (b.paralysisTimer === 0) b.paralysisImmunityTimer = 120; // 2s recovery
             if (b.paralysisTimer % 10 === 0) spawnParticles(b.pos, '#818cf8', 2, 2);
+        }
+
+        if (b.paralysisImmunityTimer !== undefined && b.paralysisImmunityTimer > 0) {
+            b.paralysisImmunityTimer--;
         }
 
         // --- STUN GUARD ---
@@ -2571,6 +2577,7 @@ export const GameCanvas: React.FC = () => {
         }
 
         if (p.invincibilityTimer > 0) p.invincibilityTimer--;
+        if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0) p.ch3MirrorTimer--;
         if (p.shootCooldown > 0) p.shootCooldown--;
 
         // Shooting Logic
@@ -2747,6 +2754,25 @@ export const GameCanvas: React.FC = () => {
                 }
             }
 
+            if (b.effect === 'GHOST' && !b.isEnemy) {
+                const target = boss.current ? boss.current.pos : { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
+                const dx = target.x - b.pos.x;
+                const dy = target.y - b.pos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Seeking + Wavy movement
+                const seekStr = 0.08;
+                b.vel.x += (dx / dist) * seekStr + Math.sin(frameCount.current * 0.1) * 0.2;
+                b.vel.y += (dy / dist) * seekStr + Math.cos(frameCount.current * 0.1) * 0.2;
+
+                const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
+                const maxSpeed = 4;
+                if (speed > maxSpeed) {
+                    b.vel.x = (b.vel.x / speed) * maxSpeed;
+                    b.vel.y = (b.vel.y / speed) * maxSpeed;
+                }
+            }
+
             if (b.homing && b.lifetime > 0 && boss.current) {
                 const angle = Math.atan2(boss.current.pos.y - b.pos.y, boss.current.pos.x - b.pos.x);
                 const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y);
@@ -2907,6 +2933,23 @@ export const GameCanvas: React.FC = () => {
                 } else {
                     hit = dist < b.size + p.size;
                 }
+
+                // --- MAGIC MIRROR BARRIER ---
+                if (!hit && p.ch3MirrorTimer && p.ch3MirrorTimer > 0) {
+                    const facing = p.lastCh3Facing || 1;
+                    const barrierX = p.pos.x + facing * 40;
+                    const barrierY = p.pos.y;
+                    const bDist = Math.sqrt((b.pos.x - barrierX) ** 2 + (b.pos.y - barrierY) ** 2);
+                    if (bDist < b.size + 40) {
+                        // Reflect!
+                        b.isEnemy = false;
+                        b.color = '#fff';
+                        b.vel.x *= -1.2;
+                        b.vel.y *= -1.2;
+                        spawnParticles(b.pos, '#fff', 5, 2);
+                        continue;
+                    }
+                }
                 // BLUE bone: safe if NOT moving
                 if (hit && b.boneColor === 'BLUE' && Math.abs(p.vel.x) < 0.5 && Math.abs(p.vel.y) < 0.5) hit = false;
                 // ORANGE bone: safe if moving
@@ -3004,7 +3047,8 @@ export const GameCanvas: React.FC = () => {
                                 }
                             }
                             if (b.effect === 'EXPLOSIVE' || b.effect === 'HEAVY' || b.effect === 'MELEE') {
-                                boss.current.stunAccumulation = (boss.current.stunAccumulation || 0) + 4;
+                                const stunGain = b.effect === 'MELEE' ? 15 : 4;
+                                boss.current.stunAccumulation = (boss.current.stunAccumulation || 0) + stunGain;
                                 if (boss.current.stunAccumulation >= 100) {
                                     boss.current.stunAccumulation = 0;
                                     boss.current.stunTimer = 120; // 2 seconds of stun
@@ -3012,11 +3056,15 @@ export const GameCanvas: React.FC = () => {
                                 }
                             }
                             if (b.effect === 'THUNDER') {
-                                boss.current.paralysisAccumulation = (boss.current.paralysisAccumulation || 0) + 6;
-                                if (boss.current.paralysisAccumulation >= 100) {
-                                    boss.current.paralysisAccumulation = 0;
-                                    boss.current.paralysisTimer = 240; // 4 seconds of paralysis
-                                    spawnParticles(boss.current.pos, '#818cf8', 40, 6);
+                                const isImmune = boss.current.paralysisImmunityTimer !== undefined && boss.current.paralysisImmunityTimer > 0;
+                                const isParalyzed = boss.current.paralysisTimer !== undefined && boss.current.paralysisTimer > 0;
+                                if (!isImmune && !isParalyzed) {
+                                    boss.current.paralysisAccumulation = (boss.current.paralysisAccumulation || 0) + 6;
+                                    if (boss.current.paralysisAccumulation >= 100) {
+                                        boss.current.paralysisAccumulation = 0;
+                                        boss.current.paralysisTimer = 240; // 4 seconds of paralysis
+                                        spawnParticles(boss.current.pos, '#818cf8', 40, 6);
+                                    }
                                 }
                             }
                         }
@@ -3477,6 +3525,39 @@ export const GameCanvas: React.FC = () => {
                 ctx.fillRect(25, bob - 18, 12, 4);
 
                 ctx.restore();
+
+                // --- MIRROR BARRIER ---
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0) {
+                    const facing = p.lastCh3Facing || 1;
+                    const mbx = px + facing * 40;
+                    const mby = py;
+                    const pulse = Math.sin(frameCount.current * 0.2) * 5;
+
+                    ctx.save();
+                    ctx.translate(mbx, mby);
+                    ctx.globalAlpha = (p.ch3MirrorTimer / 180) * 0.8;
+
+                    // Crystalline Shield effect
+                    const grad = ctx.createLinearGradient(-15, -60, 15, 60);
+                    grad.addColorStop(0, '#bae6fd');
+                    grad.addColorStop(0.5, '#fff');
+                    grad.addColorStop(1, '#bae6fd');
+
+                    ctx.fillStyle = grad;
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 3;
+
+                    ctx.beginPath();
+                    ctx.roundRect(-8 + pulse * 0.3, -50, 16, 100, 8);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Decorative shine lines
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.moveTo(-2, -30); ctx.lineTo(-2, 30); ctx.stroke();
+
+                    ctx.restore();
+                }
             }
             else {
                 // CHAPTER 1 & 2: SHIP / SOUL
@@ -3858,6 +3939,33 @@ export const GameCanvas: React.FC = () => {
                 const bul = group[i];
                 const bx = Math.round(bul.pos.x);
                 const by = Math.round(bul.pos.y);
+
+                if (bul.effect === 'GHOST') {
+                    // Ethereal Ghost Render
+                    ctx.save();
+                    ctx.translate(bx, by);
+                    ctx.globalAlpha = 0.4 + Math.sin(frameCount.current * 0.1 + i) * 0.2;
+                    ctx.fillStyle = '#fff';
+
+                    // Ghost body
+                    ctx.beginPath();
+                    ctx.arc(0, 0, bul.size, Math.PI, 0);
+                    ctx.lineTo(bul.size, bul.size);
+                    // Wavy bottom
+                    for (let x = 1; x >= -1; x -= 0.5) {
+                        ctx.lineTo(x * bul.size, bul.size + Math.sin(frameCount.current * 0.2 + x * 5) * 5);
+                    }
+                    ctx.lineTo(-bul.size, 0);
+                    ctx.fill();
+
+                    // Eyes
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath(); ctx.arc(-4, -2, 2, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(4, -2, 2, 0, Math.PI * 2); ctx.fill();
+
+                    ctx.restore();
+                    continue;
+                }
 
                 if (bul.isMissile && player.current.secondaryWeaponLevel >= 3) {
                     // Epic Missile Trail

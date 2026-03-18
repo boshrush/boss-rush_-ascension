@@ -109,6 +109,8 @@ export interface Player extends Entity {
   lastCh3Facing?: number;
   ch3RollingTimer?: number;
   ch3RollingCooldown?: number;
+  ch3MirrorTimer?: number;
+  ch3SlotKeyWasDown?: boolean;
 }
 
 export interface Boss extends Entity {
@@ -152,6 +154,7 @@ export interface Boss extends Entity {
   poisonAccumulation?: number;
   stunTimer?: number;
   paralysisTimer?: number;
+  paralysisImmunityTimer?: number;
   poisonTimer?: number;
 }
 
@@ -163,7 +166,7 @@ export interface Bullet extends Entity {
   curve?: number;
 
   // Special Properties
-  effect?: 'SLOW' | 'BURN' | 'FREEZE' | 'GRAVITY' | 'EMP' | 'REALITY_BREAK' | 'MELEE_ORB' | 'GAS' | 'CARTOON_HIT' | 'WAVE' | 'GLOW' | 'SPIRAL' | 'SLOW_PLAYER' | 'HOMING_SOFT' | 'BOOMERANG';
+  effect?: 'SLOW' | 'BURN' | 'FREEZE' | 'GRAVITY' | 'EMP' | 'REALITY_BREAK' | 'MELEE_ORB' | 'GAS' | 'CARTOON_HIT' | 'WAVE' | 'GLOW' | 'SPIRAL' | 'SLOW_PLAYER' | 'HOMING_SOFT' | 'BOOMERANG' | 'GHOST' | 'EXPLOSIVE' | 'HEAVY' | 'MELEE' | 'THUNDER';
   homing?: boolean;
   isMine?: boolean;
   mineTimer?: number;
