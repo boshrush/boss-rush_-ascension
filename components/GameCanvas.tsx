@@ -504,7 +504,7 @@ export const GameCanvas: React.FC = () => {
                 p.beamDuration = 60;
                 break;
             case 'EXPLOSIVE':
-                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed * 0.8, y: dirY * p.projectileSpeed * 0.8 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'CARTOON_HIT' });
+                bullets.current.push({ pos, vel: { x: dirX * p.projectileSpeed * 0.8, y: dirY * p.projectileSpeed * 0.8 }, size: 12, color: '#f97316', isEnemy: false, damage: damage * 2, lifetime: 120, clusterCount: 8, effect: 'EXPLOSIVE' });
                 break;
             case 'BOOMERANG':
                 bullets.current.push({ pos, vel: { x: dirX * 12, y: dirY * 12 }, size: 10, color: '#fbbf24', isEnemy: false, damage, lifetime: 120, bounces: 0, maxBounces: 1, effect: 'BOOMERANG' });
@@ -552,17 +552,17 @@ export const GameCanvas: React.FC = () => {
                 bullets.current.push({ pos, vel: { x: dirX * 8, y: dirY * 8 }, size: 100, color: 'rgba(255,255,255,0.2)', isEnemy: false, damage: damage * 1.5, lifetime: 40 });
                 break;
             case 'HEAVY':
-                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150, effect: 'BURN' });
+                bullets.current.push({ pos, vel: { x: dirX * 5, y: dirY * 5 }, size: 40, color: '#78350f', isEnemy: false, damage: damage * 5, lifetime: 150, effect: 'HEAVY' });
                 shakeIntensity.current = 10;
                 break;
             case 'MELEE':
-                bullets.current.push({ pos, vel: { x: dirX * 2, y: dirY * 2 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15 });
+                bullets.current.push({ pos, vel: { x: dirX * 2, y: dirY * 2 }, size: 60, color: 'rgba(255,255,255,0.5)', isEnemy: false, damage: damage * 3, lifetime: 15, effect: 'MELEE' });
                 break;
             case 'THUNDER':
                 if (b) {
                     for (let i = 0; i < 3; i++) {
                         const x = b.pos.x + (i - 1) * 100;
-                        bullets.current.push({ pos: { x, y: 0 }, vel: { x: 0, y: 25 }, size: 30, color: '#facc15', isEnemy: false, damage: damage * 2, lifetime: 30 });
+                        bullets.current.push({ pos: { x, y: 0 }, vel: { x: 0, y: 25 }, size: 30, color: '#facc15', isEnemy: false, damage: damage * 2, lifetime: 30, effect: 'THUNDER' });
                     }
                 }
                 break;
@@ -1219,7 +1219,9 @@ export const GameCanvas: React.FC = () => {
         const p = player.current;
         if (!b) return;
 
-        b.attackTimer++;
+        if (!(b.paralysisTimer !== undefined && b.paralysisTimer > 0)) {
+            b.attackTimer++;
+        }
 
         // Phase Transitions
         if (b.hp < b.maxHp * 0.33 && b.phase === 2) {
@@ -1234,8 +1236,12 @@ export const GameCanvas: React.FC = () => {
 
         // --- ELEMENTAL STATUSES (Ch3 Only) ---
         // Decay accumulation bars over time so they drain if you stop hitting
-        if (b.fireAccumulation !== undefined && b.fireAccumulation > 0) b.fireAccumulation = Math.max(0, b.fireAccumulation - 0.15);
-        if (b.iceAccumulation !== undefined && b.iceAccumulation > 0) b.iceAccumulation = Math.max(0, b.iceAccumulation - 0.2);
+        // Decay accumulations
+        const decay = 0.05;
+        if (b.fireAccumulation !== undefined && b.fireAccumulation > 0) b.fireAccumulation = Math.max(0, b.fireAccumulation - decay);
+        if (b.iceAccumulation !== undefined && b.iceAccumulation > 0) b.iceAccumulation = Math.max(0, b.iceAccumulation - decay);
+        if (b.stunAccumulation !== undefined && b.stunAccumulation > 0) b.stunAccumulation = Math.max(0, b.stunAccumulation - decay);
+        if (b.paralysisAccumulation !== undefined && b.paralysisAccumulation > 0) b.paralysisAccumulation = Math.max(0, b.paralysisAccumulation - decay);
 
         // Burn: deals damage over time and spawns fire particles
         if (b.fireTimer !== undefined && b.fireTimer > 0) {
@@ -1246,11 +1252,25 @@ export const GameCanvas: React.FC = () => {
             }
         }
 
-        // Freeze: boss moves slower (handled in speed calcs) and freezeTimer ticks down
+        // Freeze: boss moves slower and freezeTimer ticks down
         if (b.freezeTimer !== undefined && b.freezeTimer > 0) {
             b.freezeTimer--;
             if (b.freezeTimer % 12 === 0) spawnParticles(b.pos, '#bae6fd', 2, 2);
         }
+
+        // Stun: stops boss movement and spawns yellow particles
+        if (b.stunTimer !== undefined && b.stunTimer > 0) {
+            b.stunTimer--;
+            if (b.stunTimer % 10 === 0) spawnParticles(b.pos, '#facc15', 3, 3);
+        }
+
+        if (b.paralysisTimer !== undefined && b.paralysisTimer > 0) {
+            b.paralysisTimer--;
+            if (b.paralysisTimer % 10 === 0) spawnParticles(b.pos, '#818cf8', 2, 2);
+        }
+
+        // --- STUN GUARD ---
+        if (b.stunTimer !== undefined && b.stunTimer > 0) return;
 
         // --- BOSS 1: MORTIMER EL PAYASO (Clown) ---
         if (b.type === BossType.CH3_MORTIMER) {
@@ -2968,7 +2988,7 @@ export const GameCanvas: React.FC = () => {
                         // --- Elemental Accumulation (Ch3) ---
                         if (currentChapter.current === 3) {
                             if (b.effect === 'BURN') {
-                                boss.current.fireAccumulation = (boss.current.fireAccumulation || 0) + 1;
+                                boss.current.fireAccumulation = (boss.current.fireAccumulation || 0) + 3;
                                 if (boss.current.fireAccumulation >= 100) {
                                     boss.current.fireAccumulation = 0;
                                     boss.current.fireTimer = 300; // 5 seconds of burn
@@ -2976,11 +2996,27 @@ export const GameCanvas: React.FC = () => {
                                 }
                             }
                             if (b.effect === 'FREEZE') {
-                                boss.current.iceAccumulation = (boss.current.iceAccumulation || 0) + 2; // Buildup faster
+                                boss.current.iceAccumulation = (boss.current.iceAccumulation || 0) + 5;
                                 if (boss.current.iceAccumulation >= 100) {
                                     boss.current.iceAccumulation = 0;
                                     boss.current.freezeTimer = 180; // 3 seconds of freeze
                                     spawnParticles(boss.current.pos, '#bae6fd', 30, 3);
+                                }
+                            }
+                            if (b.effect === 'EXPLOSIVE' || b.effect === 'HEAVY' || b.effect === 'MELEE') {
+                                boss.current.stunAccumulation = (boss.current.stunAccumulation || 0) + 4;
+                                if (boss.current.stunAccumulation >= 100) {
+                                    boss.current.stunAccumulation = 0;
+                                    boss.current.stunTimer = 120; // 2 seconds of stun
+                                    spawnParticles(boss.current.pos, '#facc15', 30, 8);
+                                }
+                            }
+                            if (b.effect === 'THUNDER') {
+                                boss.current.paralysisAccumulation = (boss.current.paralysisAccumulation || 0) + 6;
+                                if (boss.current.paralysisAccumulation >= 100) {
+                                    boss.current.paralysisAccumulation = 0;
+                                    boss.current.paralysisTimer = 240; // 4 seconds of paralysis
+                                    spawnParticles(boss.current.pos, '#818cf8', 40, 6);
                                 }
                             }
                         }
@@ -3690,8 +3726,22 @@ export const GameCanvas: React.FC = () => {
                     barY += barH + 10;
                 };
 
-                drawStatusBar('🔥 FUEGO', b.fireAccumulation || 0, 100, '#f97316', '#450a00', (b.fireTimer || 0) > 0, '🔥 ARDIENDO!');
-                drawStatusBar('🧊 HIELO', b.iceAccumulation || 0, 100, '#7dd3fc', '#0c1a2e', (b.freezeTimer || 0) > 0, '🧊 CONGELADO!');
+                const fAcc = b.fireAccumulation || 0;
+                const fTime = b.fireTimer || 0;
+                if (fAcc > 0 || fTime > 0) drawStatusBar('🔥 FUEGO', fAcc, 100, '#f97316', '#450a00', fTime > 0, '🔥 ARDIENDO!');
+
+                const iAcc = b.iceAccumulation || 0;
+                const iTime = b.freezeTimer || 0;
+                if (iAcc > 0 || iTime > 0) drawStatusBar('🧊 HIELO', iAcc, 100, '#7dd3fc', '#0c1a2e', iTime > 0, '🧊 CONGELADO!');
+
+                const sAcc = b.stunAccumulation || 0;
+                const sTime = b.stunTimer || 0;
+                if (sAcc > 0 || sTime > 0) drawStatusBar('💫 STUN', sAcc, 100, '#facc15', '#422006', sTime > 0, '💫 MAREADO!');
+
+                const pAcc = b.paralysisAccumulation || 0;
+                const pTime = b.paralysisTimer || 0;
+                if (pAcc > 0 || pTime > 0) drawStatusBar('⚡ PARALISIS', pAcc, 100, '#818cf8', '#1e1b4b', pTime > 0, '⚡ PARALIZADO!');
+
                 ctx.globalAlpha = 1;
             }
         }
