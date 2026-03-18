@@ -580,7 +580,7 @@ export const GameCanvas: React.FC = () => {
                 p.secondaryCooldownTimer = 1800; // 30s
                 break;
             case 'ULTIMATE':
-                bullets.current.push({ pos, vel: { x: dirX * 4, y: dirY * 4 }, size: 150, color: 'rgba(239, 68, 68, 0.4)', isEnemy: false, damage: damage * 10, lifetime: 300, piercing: true });
+                bullets.current.push({ pos, vel: { x: dirX * 4, y: dirY * 4 }, size: 150, color: 'rgba(239, 68, 68, 0.4)', isEnemy: false, damage: damage * 10, lifetime: 300, piercing: true, effect: 'ULTIMATE' });
                 p.secondaryCooldownTimer = 999999; // 1 use per life
                 break;
         }
@@ -3065,6 +3065,17 @@ export const GameCanvas: React.FC = () => {
 
                         let damageDealt = b.damage;
                         if (boss.current.freezeTimer > 0) damageDealt *= 2;
+
+                        // --- ULTIMATE (Alma del Diablo) ---
+                        if (b.effect === 'ULTIMATE') {
+                            if (boss.current.type === BossType.CH3_SCRATCH) {
+                                damageDealt = boss.current.maxHp * 0.5; // Deals 50% max HP
+                                spawnParticles(boss.current.pos, '#fecaca', 100, 20);
+                                shakeIntensity.current = 50;
+                            } else {
+                                damageDealt = 0; // Does nothing to other bosses
+                            }
+                        }
 
                         // --- Elemental Accumulation (Ch3) ---
                         if (currentChapter.current === 3) {
