@@ -1597,7 +1597,12 @@ export const GameCanvas: React.FC = () => {
             }
 
             if (b.attackTimer % freq === 0) {
-                const attackType = Math.floor(Math.random() * (b.phase >= 2 ? 5 : 4));
+                let attackType = Math.floor(Math.random() * (b.phase >= 2 ? 5 : 4));
+
+                // Mirror Counter: Prioritize Pitchfork Thrust
+                if (p.ch3MirrorTimer && p.ch3MirrorTimer > 0 && Math.random() > 0.2) {
+                    attackType = 0;
+                }
 
                 if (attackType === 0) {
                     // Pitchfork Thrust
