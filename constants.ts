@@ -158,12 +158,22 @@ export const CH2_BOX = {
   baseH: 160,
 };
 
+export const CH2_ATTACK_PATTERNS = {
+  GUARDIAN: ['BINARY_RAIN', 'ROTATING_WALLS', 'GRAVITY_FLIP', 'LASER_GRID'],
+  ALCHEMIST: ['POTION_THROW', 'TOXIC_FLOOR', 'ICE_SHARDS', 'SOUL_CONFUSION'],
+  DIRECTOR: ['RHYTHM_BEATS', 'SOUND_WAVES', 'BOX_COMPRESSION', 'CRESCENDO'],
+  ENTITY: ['GLITCH_STORM', 'TELEPORT_STRIKE', 'FAKE_BULLETS', 'BOX_SHIFT'],
+  SKELETON_KING: ['BONE_CAGE', 'GIGA_BLASTER', 'SWORD_SLASH', 'PARRY_ORBS']
+};
+
 export const SOUL_PHYSICS = {
   gravity: 0.25,
   jumpPower: 6,
   terminalVelocity: 8,
   boxSize: 300, // Size of the bullet hell box
-  soulSpeed: 4,
+  soulSpeed: 4, // Default Red soul speed
+  blueGravity: 0.35, // Heavier gravity
+  yellowSpeed: 6 // Faster speed without gravity
 };
 
 export const UPGRADE_POOL: Upgrade[] = [

@@ -3017,12 +3017,21 @@ export const GameCanvas: React.FC = () => {
                 }
 
                 let parried = false;
-                if (hit && b.isParryable && p.parryTimer && p.parryTimer > 0) {
+                const isCh2Parry = currentChapter.current === 2 && hit && b.isParryable && p.isDashing;
+                const isCh3Parry = currentChapter.current === 3 && hit && b.isParryable && p.parryTimer && p.parryTimer > 0;
+
+                if (isCh3Parry || isCh2Parry) {
                     parried = true;
                     spawnParticles(b.pos, '#f0abfc', 20, 6); // Magenta explosion
                     shakeIntensity.current = Math.max(shakeIntensity.current, 10);
                     p.invincibilityTimer = 60; // Reward: 1s iframes
-                    if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 5); // Reward: minor heal
+
+                    if (isCh2Parry) {
+                        p.secondaryCooldownTimer = 0; // Reward for Ch2: Instant secondary
+                        if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 5);
+                    } else if (isCh3Parry) {
+                        if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 5); // Reward: minor heal
+                    }
 
                     // Super Jump if MELEE_ORB
                     if (b.effect === 'MELEE_ORB') {

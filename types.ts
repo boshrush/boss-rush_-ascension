@@ -81,6 +81,9 @@ export interface Player extends Entity {
   jumpPower: number;
   krTimer: number; // Karmic Retribution poison timer
   krDamageAccumalator: number; // Stored damage that ticks down HP
+  ch2ParryTimer?: number;
+  boxScaleX?: number;
+  boxScaleY?: number;
 
   // Secondary Weapon System
   secondaryWeapon: SecondaryWeaponType;
@@ -143,6 +146,9 @@ export interface Boss extends Entity {
   // Chapter 2 Properties
   forceNoIframes?: boolean;
   glitchTimer?: number;
+  currentAttackIndex?: number;
+  boxState?: 'NORMAL' | 'SHRINKING' | 'EXPANDING' | 'MOVING' | 'BROKEN';
+  customAttackTimer?: number;
 
   // Chapter 3 Elemental Status (Progress Bars)
   fireAccumulation?: number;
@@ -196,6 +202,7 @@ export interface Bullet extends Entity {
   maxBounces?: number;
   isMissile?: boolean;
   isParryable?: boolean;
+  isParried?: boolean; // If it was successfully dashed through
 }
 
 export interface Particle extends Entity {
