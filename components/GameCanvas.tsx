@@ -1822,37 +1822,38 @@ export const GameCanvas: React.FC = () => {
 
             if (attack === 'BINARY_RAIN') {
                 ch2SoulColor.current = 'BLUE';
-                if (b.customAttackTimer % Math.round(30 / spd) === 0) {
+                if (b.customAttackTimer % Math.round(20 / spd) === 0) {
                     const cx = CH2_BOX.cx + ch2BoxOffsetX.current;
                     const bx = cx - ch2BoxW.current / 2 + Math.random() * ch2BoxW.current;
-                    if (!trySpawnParry(bx, CH2_BOX.cy - ch2BoxH.current / 2 - 20, 0, 4.5 * spd)) {
-                        bullets.current.push({ pos: { x: bx, y: CH2_BOX.cy - ch2BoxH.current / 2 - 20 }, vel: { x: 0, y: 4.5 * spd }, size: 8, color: '#10b981', isEnemy: true, damage: 10, lifetime: 200, isBone: true, boneWidth: 10, boneHeight: 40, boneColor: 'WHITE' });
+                    if (!trySpawnParry(bx, CH2_BOX.cy - ch2BoxH.current / 2 - 20, 0, 7 * spd)) {
+                        bullets.current.push({ pos: { x: bx, y: CH2_BOX.cy - ch2BoxH.current / 2 - 20 }, vel: { x: 0, y: 7 * spd }, size: 8, color: '#10b981', isEnemy: true, damage: 10, lifetime: 200, isBone: true, boneWidth: 10, boneHeight: 40, boneColor: 'WHITE' });
                     }
                 }
             } else if (attack === 'ROTATING_WALLS') {
                 ch2SoulColor.current = 'RED';
-                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
-                    // Simple sweeping walls from side
+                if (b.customAttackTimer % Math.round(45 / spd) === 0) {
                     const fromLeft = Math.random() > 0.5;
-                    bullets.current.push({ pos: { x: fromLeft ? CH2_BOX.cx - ch2BoxW.current - 50 : CH2_BOX.cx + ch2BoxW.current + 50, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current }, vel: { x: (fromLeft ? 1 : -1) * 3 * spd, y: 0 }, size: 8, color: '#e5e7eb', isEnemy: true, damage: 15, lifetime: 200, isBone: true, boneWidth: 30, boneHeight: Math.random() > 0.5 ? 90 : 40, boneColor: 'WHITE' });
+                    bullets.current.push({ pos: { x: fromLeft ? CH2_BOX.cx - ch2BoxW.current - 50 : CH2_BOX.cx + ch2BoxW.current + 50, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current }, vel: { x: (fromLeft ? 1 : -1) * 5 * spd, y: 0 }, size: 8, color: '#e5e7eb', isEnemy: true, damage: 15, lifetime: 200, isBone: true, boneWidth: 30, boneHeight: Math.random() > 0.5 ? 90 : 40, boneColor: 'WHITE' });
                 }
             } else if (attack === 'GRAVITY_FLIP') {
                 ch2SoulColor.current = 'BLUE';
                 if (b.customAttackTimer % 180 === 0) {
-                    p.gravityDir.y = (p.gravityDir.y === 1) ? -1 : 1; // Flip gravity!
+                    p.gravityDir.y = (p.gravityDir.y === 1) ? -1 : 1;
                     hudGlitch.current = 10;
                     shakeIntensity.current = 5;
                 }
-                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                if (b.customAttackTimer % Math.round(30 / spd) === 0) {
                     const ypos = p.gravityDir.y === 1 ? CH2_BOX.cy + ch2BoxH.current / 2 - 10 : CH2_BOX.cy - ch2BoxH.current / 2 + 10;
-                    bullets.current.push({ pos: { x: CH2_BOX.cx + ch2BoxOffsetX.current + (Math.random() - 0.5) * ch2BoxW.current, y: ypos }, vel: { x: (Math.random() - 0.5) * 3, y: p.gravityDir.y * -2 }, size: 8, color: '#3b82f6', isEnemy: true, damage: 15, lifetime: 200 });
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + ch2BoxOffsetX.current + (Math.random() - 0.5) * ch2BoxW.current, y: ypos }, vel: { x: (Math.random() - 0.5) * 5, y: p.gravityDir.y * -6 }, size: 8, color: '#3b82f6', isEnemy: true, damage: 15, lifetime: 200 });
                 }
             } else if (attack === 'LASER_GRID') {
                 b.boxState = 'MOVING';
                 ch2SoulColor.current = 'GREEN';
-                if (b.customAttackTimer % Math.round(90 / spd) === 0) {
-                    const ang = Math.random() > 0.5 ? 0 : Math.PI / 2;
-                    bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy }, vel: { x: 0, y: 0 }, size: 20, color: '#f97316', isEnemy: true, damage: 20, lifetime: 80, isBlaster: true, blasterTimer: 50, blasterPhase: 'WARN', angle: ang });
+                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
+                    const side = Math.floor(Math.random() * 4);
+                    const posMap = [{ x: p.pos.x - 300, y: p.pos.y }, { x: p.pos.x + 300, y: p.pos.y }, { x: p.pos.x, y: p.pos.y - 300 }, { x: p.pos.x, y: p.pos.y + 300 }];
+                    const velMap = [{ x: 5 * spd, y: 0 }, { x: -5 * spd, y: 0 }, { x: 0, y: 5 * spd }, { x: 0, y: -5 * spd }];
+                    bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 8, color: '#22c55e', isEnemy: true, damage: 20, lifetime: 200 });
                 }
             }
 
@@ -1905,10 +1906,9 @@ export const GameCanvas: React.FC = () => {
                 ch2SoulColor.current = 'GREEN';
                 if (b.customAttackTimer % Math.round(25 / spd) === 0) {
                     const side = Math.floor(Math.random() * 4);
-                    const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
-                    const posMap = [{ x: cx - bw, y: cy }, { x: cx + bw, y: cy }, { x: cx, y: cy - bh }, { x: cx, y: cy + bh }];
+                    const posMap = [{ x: p.pos.x - 300, y: p.pos.y }, { x: p.pos.x + 300, y: p.pos.y }, { x: p.pos.x, y: p.pos.y - 300 }, { x: p.pos.x, y: p.pos.y + 300 }];
                     const velMap = [{ x: 5 * spd, y: 0 }, { x: -5 * spd, y: 0 }, { x: 0, y: 5 * spd }, { x: 0, y: -5 * spd }];
-                    bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#38bdf8', isEnemy: true, damage: 15, lifetime: 200, effect: 'FREEZE' });
+                    bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#22c55e', isEnemy: true, damage: 15, lifetime: 200, effect: 'FREEZE' });
                 }
             } else if (attack === 'SOUL_CONFUSION') {
                 b.boxState = 'SHRINKING';
@@ -1945,9 +1945,13 @@ export const GameCanvas: React.FC = () => {
             } else if (attack === 'BOX_COMPRESSION') {
                 b.boxState = 'SHRINKING';
                 ch2SoulColor.current = 'GREEN';
-                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
-                    trySpawnParry(CH2_BOX.cx + (Math.random() - 0.5) * 100, CH2_BOX.cy - ch2BoxH.current, 0, 5) ||
-                        bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * 100, y: CH2_BOX.cy - ch2BoxH.current }, vel: { x: 0, y: 5 }, size: 8, color: '#facc15', isEnemy: true, damage: 20, lifetime: 200 });
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    const side = Math.floor(Math.random() * 4);
+                    const dist = 300;
+                    const posMap = [{ x: p.pos.x - dist, y: p.pos.y }, { x: p.pos.x + dist, y: p.pos.y }, { x: p.pos.x, y: p.pos.y - dist }, { x: p.pos.x, y: p.pos.y + dist }];
+                    const velMap = [{ x: 7 * spd, y: 0 }, { x: -7 * spd, y: 0 }, { x: 0, y: 7 * spd }, { x: 0, y: -7 * spd }];
+                    trySpawnParry(CH2_BOX.cx, CH2_BOX.cy - 300, 0, 5) ||
+                        bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 8, color: '#22c55e', isEnemy: true, damage: 20, lifetime: 200 });
                 }
             } else if (attack === 'CRESCENDO') {
                 ch2SoulColor.current = 'RED';
@@ -1971,10 +1975,12 @@ export const GameCanvas: React.FC = () => {
                 }
             } else if (attack === 'TELEPORT_STRIKE') {
                 ch2SoulColor.current = 'GREEN';
-                if (b.customAttackTimer % Math.round(90 / spd) === 0) {
-                    spawnParticles(b.pos, '#fff', 20, 5);
-                    b.pos = { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 1.5, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 1.5 };
-                    bullets.current.push({ pos: { ...b.pos }, vel: { x: 0, y: 0 }, size: 30, color: '#f43f5e', isEnemy: true, damage: 25, lifetime: 60, isBlaster: true, blasterTimer: 30, blasterPhase: 'WARN' });
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    const side = Math.floor(Math.random() * 4);
+                    const dist = 400;
+                    const posMap = [{ x: p.pos.x - dist, y: p.pos.y }, { x: p.pos.x + dist, y: p.pos.y }, { x: p.pos.x, y: p.pos.y - dist }, { x: p.pos.x, y: p.pos.y + dist }];
+                    const velMap = [{ x: 8 * spd, y: 0 }, { x: -8 * spd, y: 0 }, { x: 0, y: 8 * spd }, { x: 0, y: -8 * spd }];
+                    bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 10, color: '#22c55e', isEnemy: true, damage: 25, lifetime: 200 });
                 }
             } else if (attack === 'FAKE_BULLETS') {
                 ch2SoulColor.current = 'BLUE';
@@ -2017,9 +2023,9 @@ export const GameCanvas: React.FC = () => {
                 }
             } else if (attack === 'SWORD_SLASH') {
                 ch2SoulColor.current = 'GREEN';
-                if (b.customAttackTimer % Math.round(20 / spd) === 0) {
-                    const a = Math.random() * Math.PI * 2;
-                    bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(a) * 100, y: CH2_BOX.cy + Math.sin(a) * 100 }, vel: { x: -Math.cos(a) * 6 * spd, y: -Math.sin(a) * 6 * spd }, size: 8, color: '#f1f5f9', isEnemy: true, damage: 20, lifetime: 100, isBone: true, boneWidth: 40, boneHeight: 10, boneColor: 'ORANGE' });
+                if (b.customAttackTimer % Math.round(25 / spd) === 0) {
+                    const a = Math.floor(Math.random() * 4) * (Math.PI / 2);
+                    bullets.current.push({ pos: { x: p.pos.x + Math.cos(a) * 350, y: p.pos.y + Math.sin(a) * 350 }, vel: { x: -Math.cos(a) * 7 * spd, y: -Math.sin(a) * 7 * spd }, size: 12, color: '#22c55e', isEnemy: true, damage: 20, lifetime: 200 });
                 }
             } else if (attack === 'PARRY_ORBS') {
                 ch2SoulColor.current = 'BLUE';
