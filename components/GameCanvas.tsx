@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { GameState, BossType, Player, Boss, Bullet, Particle, Vector2, Upgrade, SecondaryWeaponType, SoulColor, Chapter } from '../types';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX, CH3_BOSS_CONFIGS, CH3_WEAPONS, CH3_PHYSICS } from '../constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_BASE_STATS, COLORS, BOSS_CONFIGS, UPGRADE_POOL, SECONDARY_WEAPON_STATS, SOUL_PHYSICS, CH2_BOX, CH3_BOSS_CONFIGS, CH3_WEAPONS, CH3_PHYSICS, CH2_ATTACK_PATTERNS } from '../constants';
 import { Rocket, Skull, Shield, Zap, Heart, RefreshCw, Crosshair, AlertTriangle, Lock, Unlock, Plus, Database, Target, Cpu, ArrowUpCircle, Ghost } from 'lucide-react';
 
 const useInput = (canvasRef: React.RefObject<HTMLCanvasElement>) => {
@@ -1706,33 +1706,72 @@ export const GameCanvas: React.FC = () => {
     };
 
     // ═══════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
     // CHAPTER 2 BOSS LOGIC
     // ═══════════════════════════════════════════════
     const handleCh2BossLogic = () => {
         if (!boss.current) return;
         const b = boss.current;
         const p = player.current;
-        const spd = 1 + (b.phase - 1) * 0.25; // +25% per phase
+        const spd = 1 + (b.phase - 1) * 0.25;
 
-        // Phase transitions
+        // Runner Phase (< 20% HP)
         const hpPct = b.hp / b.maxHp;
-        if (hpPct < 0.33 && b.phase < 3) {
+        if (hpPct <= 0.2 && b.phase < 4) {
+            b.phase = 4;
+            spawnParticles(b.pos, '#fff', 100, 15);
+            shakeIntensity.current = 30;
+            b.boxState = 'BROKEN';
+            ch2BoxW.current = 700;
+            ch2BoxH.current = 500;
+            ch2SoulColor.current = 'RED'; // Free movement
+        } else if (hpPct <= 0.5 && b.phase < 3) {
             b.phase = 3;
-            spawnParticles(b.pos, '#fff', 60, 12);
-            shakeIntensity.current = 25;
-            if (b.type === BossType.CH2_DIRECTOR) { ch2BoxW.current = 96; ch2BoxH.current = 64; }
-            else { ch2BoxW.current = 200; ch2BoxH.current = 130; }
-        } else if (hpPct < 0.66 && b.phase < 2) {
-            b.phase = 2;
-            spawnParticles(b.pos, '#fff', 40, 10);
+            spawnParticles(b.pos, '#ff0', 40, 10);
             shakeIntensity.current = 15;
+            b.currentAttackIndex = undefined; // Force pick new attack
+        } else if (hpPct <= 0.75 && b.phase < 2) {
+            b.phase = 2;
+            spawnParticles(b.pos, '#fff', 30, 8);
+            b.currentAttackIndex = undefined;
         }
 
         b.attackTimer++;
 
-        // Fight window: every 400 frames, open a 70-frame window
+        // Initialize attack rotation if not set
+        if (b.currentAttackIndex === undefined) {
+            b.currentAttackIndex = Math.floor(Math.random() * 4);
+            b.customAttackTimer = 0;
+            b.boxState = 'NORMAL';
+        }
+        b.customAttackTimer = (b.customAttackTimer || 0) + 1;
+
+        // Change attack every 12 seconds (720 frames) approx, or earlier if forced
+        if (b.customAttackTimer > 700 && b.phase !== 4) {
+            b.currentAttackIndex = Math.floor(Math.random() * 4);
+            b.customAttackTimer = 0;
+            b.boxState = 'NORMAL';
+            ch2SoulColor.current = 'RED'; // Reset soul
+        }
+
+        // Apply Box States (lerped in main update)
+        if (b.boxState === 'SHRINKING') {
+            ch2BoxW.current = Math.max(80, ch2BoxW.current - 1);
+            ch2BoxH.current = Math.max(80, ch2BoxH.current - 1);
+        } else if (b.boxState === 'EXPANDING') {
+            ch2BoxW.current = Math.min(300, ch2BoxW.current + 2);
+            ch2BoxH.current = Math.min(220, ch2BoxH.current + 2);
+        } else if (b.boxState === 'MOVING') {
+            ch2BoxOffsetX.current = Math.sin(frameCount.current * 0.03) * 120;
+        } else if (b.boxState === 'NORMAL') {
+            ch2BoxW.current += (240 - ch2BoxW.current) * 0.05;
+            ch2BoxH.current += (160 - ch2BoxH.current) * 0.05;
+            ch2BoxOffsetX.current *= 0.9;
+        }
+
+        // Fight window: every 300 frames, open a 70-frame window
         if (ch2FightWindowTimer.current > 0) ch2FightWindowTimer.current--;
-        if (b.attackTimer % 400 === 0) {
+        if (b.attackTimer % 300 === 0) {
             ch2IsFightAvailable.current = true;
             ch2FightWindowTimer.current = 70;
         }
@@ -1740,41 +1779,81 @@ export const GameCanvas: React.FC = () => {
             ch2IsFightAvailable.current = false;
         }
 
+        if (b.phase === 4) {
+            // RUNNER PHASE - Universal for all Ch2 Bosses
+            b.activeEffect = '⚠️ SOBREVIVE ⚠️';
+            b.forceNoIframes = false; // Give player a chance
+            if (b.customAttackTimer % 15 === 0) {
+                // Fall from top
+                bullets.current.push({
+                    pos: { x: Math.random() * 800, y: -20 },
+                    vel: { x: (Math.random() - 0.5) * 2, y: 7 + Math.random() * 5 },
+                    size: 8, color: '#ef4444', isEnemy: true, damage: 15, lifetime: 200
+                });
+            }
+            if (b.customAttackTimer % 45 === 0) {
+                // Parry-able bullet to give heals/cooldowns during runner phase
+                bullets.current.push({
+                    pos: { x: 800, y: Math.random() * 600 },
+                    vel: { x: -8, y: 0 }, size: 12, color: '#f472b6', isEnemy: true, damage: 20, lifetime: 200, isParryable: true
+                });
+            }
+            return; // Skip normal attacks
+        }
+
+        const getAttackName = (typeCode: string) => {
+            const patterns = (CH2_ATTACK_PATTERNS as Record<string, string[]>)[typeCode];
+            return patterns ? patterns[b.currentAttackIndex!] : 'NONE';
+        };
+
+        // Helper to spawn a parry-able bullet sometimes
+        const trySpawnParry = (x: number, y: number, vx: number, vy: number) => {
+            if (Math.random() < 0.15) {
+                bullets.current.push({ pos: { x, y }, vel: { x: vx, y: vy }, size: 10, color: '#f472b6', isEnemy: true, damage: 15, lifetime: 200, isParryable: true });
+                return true;
+            }
+            return false;
+        };
+
         // ── EL GUARDIÁN BINARIO ──────────────────────────
         if (b.type === BossType.CH2_GUARDIAN) {
-            if (b.phase >= 2) {
-                ch2BoxOffsetX.current = Math.sin(frameCount.current * 0.025) * 80;
-            }
-            if (b.phase >= 3) {
-                ch2ColorPhaseTimer.current++;
-            }
-            const bColor: 'WHITE' | 'BLUE' | 'ORANGE' = b.phase === 3
-                ? (Math.floor(ch2ColorPhaseTimer.current / 120) % 2 === 0 ? 'BLUE' : 'ORANGE')
-                : 'WHITE';
-            if (b.phase === 3) b.activeEffect = bColor === 'BLUE' ? '🔵 AZUL - NO TE MUEVAS' : '🟠 NARANJA - MUÉVETE';
+            const attack = getAttackName('GUARDIAN');
+            b.activeEffect = `💻 GUARD PROTOCOL: ${attack}`;
 
-            // Horizontal bones
-            const hRate = Math.round(60 / spd);
-            if (b.attackTimer % hRate === 0) {
-                const fromLeft = (b.attackTimer / hRate) % 2 === 0;
-                let yPos = CH2_BOX.cy - ch2BoxH.current / 2 + Math.random() * ch2BoxH.current;
-
-                // --- BRECHA DE SEGURIDAD (SECRET GAP) ---
-                // Si el jugador está cerca del safe spot, desviamos los huesos un poco (solo si el código está activo)
-                const safeX = 422 + ch2BoxOffsetX.current;
-                const safeY = 385;
-                const isNearSafeSpot = (isAdminAuthenticated.current || secretRiftActive.current) && Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 20;
-                if (isNearSafeSpot && Math.abs(yPos - safeY) < 30) {
-                    yPos = yPos > safeY ? yPos + 35 : yPos - 35;
+            if (attack === 'BINARY_RAIN') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(30 / spd) === 0) {
+                    const cx = CH2_BOX.cx + ch2BoxOffsetX.current;
+                    const bx = cx - ch2BoxW.current / 2 + Math.random() * ch2BoxW.current;
+                    if (!trySpawnParry(bx, CH2_BOX.cy - ch2BoxH.current / 2 - 20, 0, 4.5 * spd)) {
+                        bullets.current.push({ pos: { x: bx, y: CH2_BOX.cy - ch2BoxH.current / 2 - 20 }, vel: { x: 0, y: 4.5 * spd }, size: 8, color: '#10b981', isEnemy: true, damage: 10, lifetime: 200, isBone: true, boneWidth: 10, boneHeight: 40, boneColor: 'WHITE' });
+                    }
                 }
-
-                bullets.current.push({
-                    pos: { x: fromLeft ? CH2_BOX.cx + ch2BoxOffsetX.current - ch2BoxW.current / 2 - 50 : CH2_BOX.cx + ch2BoxOffsetX.current + ch2BoxW.current / 2 + 50, y: yPos },
-                    vel: { x: (fromLeft ? 1 : -1) * 5 * spd, y: 0 },
-                    size: 8, color: bColor === 'BLUE' ? '#3b82f6' : (bColor === 'ORANGE' ? '#f97316' : '#e5e7eb'),
-                    isEnemy: true, damage: 10, lifetime: 160,
-                    isBone: true, boneWidth: 90, boneHeight: 18, boneColor: bColor
-                });
+            } else if (attack === 'ROTATING_WALLS') {
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
+                    // Simple sweeping walls from side
+                    const fromLeft = Math.random() > 0.5;
+                    bullets.current.push({ pos: { x: fromLeft ? CH2_BOX.cx - ch2BoxW.current - 50 : CH2_BOX.cx + ch2BoxW.current + 50, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current }, vel: { x: (fromLeft ? 1 : -1) * 3 * spd, y: 0 }, size: 8, color: '#e5e7eb', isEnemy: true, damage: 15, lifetime: 200, isBone: true, boneWidth: 30, boneHeight: Math.random() > 0.5 ? 90 : 40, boneColor: 'WHITE' });
+                }
+            } else if (attack === 'GRAVITY_FLIP') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % 180 === 0) {
+                    p.gravityDir.y = (p.gravityDir.y === 1) ? -1 : 1; // Flip gravity!
+                    hudGlitch.current = 10;
+                    shakeIntensity.current = 5;
+                }
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    const ypos = p.gravityDir.y === 1 ? CH2_BOX.cy + ch2BoxH.current / 2 - 10 : CH2_BOX.cy - ch2BoxH.current / 2 + 10;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + ch2BoxOffsetX.current + (Math.random() - 0.5) * ch2BoxW.current, y: ypos }, vel: { x: (Math.random() - 0.5) * 3, y: p.gravityDir.y * -2 }, size: 8, color: '#3b82f6', isEnemy: true, damage: 15, lifetime: 200 });
+                }
+            } else if (attack === 'LASER_GRID') {
+                b.boxState = 'MOVING';
+                ch2SoulColor.current = 'GREEN';
+                if (b.customAttackTimer % Math.round(90 / spd) === 0) {
+                    const ang = Math.random() > 0.5 ? 0 : Math.PI / 2;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy }, vel: { x: 0, y: 0 }, size: 20, color: '#f97316', isEnemy: true, damage: 20, lifetime: 80, isBlaster: true, blasterTimer: 50, blasterPhase: 'WARN', angle: ang });
+                }
             }
 
             // --- MAGNET EFFECT FOR SECRET RIFT ---
@@ -1783,7 +1862,6 @@ export const GameCanvas: React.FC = () => {
                 const riftY = CH2_BOX.cy;
                 const pullStr = 0.5; // Magnet pull strength
 
-                // Pull bullets toward rift
                 bullets.current.forEach(bul => {
                     if (bul.isEnemy || bul.isBone) {
                         const drx = riftX - bul.pos.x;
@@ -1796,244 +1874,158 @@ export const GameCanvas: React.FC = () => {
                     }
                 });
 
-                // Check if player is on rift (Invincibility)
                 const distPlayerRift = Math.sqrt((p.pos.x - riftX) ** 2 + (p.pos.y - riftY) ** 2);
-                if (distPlayerRift < 20) {
-                    p.invincibilityTimer = 2; // Constant short invincibility
-                }
-            }
-
-            // Vertical bones - avoiding player's current X position
-            const vRate = Math.round(90 / spd);
-            if (b.attackTimer % vRate === 0) {
-                const cx = CH2_BOX.cx + ch2BoxOffsetX.current;
-                const boxLeft = cx - ch2BoxW.current / 2;
-                const boxRight = cx + ch2BoxW.current / 2;
-                const safeZone = 40; // px gap around player's X
-                // Build candidate list: left section and right section of the box
-                const candidates: number[] = [];
-                for (let x = boxLeft + 20; x < boxRight - 20; x += 25) {
-                    if (Math.abs(x - p.pos.x) > safeZone) candidates.push(x);
-                }
-                // If no candidate (extremely narrow box), fall back to random
-                const xPos = candidates.length > 0
-                    ? candidates[Math.floor(Math.random() * candidates.length)]
-                    : boxLeft + Math.random() * ch2BoxW.current;
-                bullets.current.push({
-                    pos: { x: xPos, y: CH2_BOX.cy - ch2BoxH.current / 2 - 50 },
-                    vel: { x: 0, y: 4.5 * spd },
-                    size: 8, color: '#e5e7eb', isEnemy: true, damage: 10, lifetime: 130,
-                    isBone: true, boneWidth: 18, boneHeight: 80, boneColor: 'WHITE'
-                });
-            }
-            // Corner sweep: targets bottom-right corner, max 9 times in first 3 min (10800 frames)
-            if (b.attackTimer % 1200 === 0 && b.attackTimer <= 10800) {
-                const bx = CH2_BOX.cx + ch2BoxOffsetX.current;
-                const rightEdge = bx + ch2BoxW.current / 2;
-                const bottomEdge = CH2_BOX.cy + ch2BoxH.current / 2;
-                // Fire from left and top toward bottom-right corner
-                for (let i = 0; i < 3; i++) {
-                    const delay = i * 250;
-                    setTimeout(() => {
-                        if (!boss.current) return;
-                        // From left side, angled right-downward
-                        bullets.current.push({
-                            pos: { x: bx - ch2BoxW.current / 2 - 30, y: bottomEdge - 20 - i * 15 },
-                            vel: { x: 5 * spd, y: 1.5 * spd },
-                            size: 8, color: '#fbbf24', isEnemy: true, damage: 10, lifetime: 150,
-                            isBone: true, boneWidth: 90, boneHeight: 18, boneColor: 'ORANGE'
-                        });
-                        // From top side, angled down-rightward
-                        bullets.current.push({
-                            pos: { x: rightEdge - 20 - i * 15, y: CH2_BOX.cy - ch2BoxH.current / 2 - 30 },
-                            vel: { x: 1.5 * spd, y: 5 * spd },
-                            size: 8, color: '#fbbf24', isEnemy: true, damage: 10, lifetime: 150,
-                            isBone: true, boneWidth: 18, boneHeight: 80, boneColor: 'ORANGE'
-                        });
-                    }, delay);
-                }
+                if (distPlayerRift < 20) p.invincibilityTimer = 2;
             }
         }
 
         // ── EL ALQUIMISTA DE PÍXELES ─────────────────────
         else if (b.type === BossType.CH2_ALCHEMIST) {
-            if (b.phase === 1) {
-                ch2SoulColor.current = 'GREEN';
-                b.activeEffect = '💚 ALMA VERDE - Detiene proyectiles';
-                // Bullets from 4 sides
-                if (b.attackTimer % Math.round(40 / spd) === 0) {
-                    const side = (b.attackTimer / Math.round(40 / spd)) % 4;
-                    const count = 5;
-                    for (let i = 0; i < count; i++) {
-                        const t = i / (count - 1) - 0.5;
-                        const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
-                        const posMap = [
-                            { x: cx - bw - 12, y: cy + t * ch2BoxH.current }, { x: cx + bw + 12, y: cy + t * ch2BoxH.current },
-                            { x: cx + t * ch2BoxW.current, y: cy - bh - 12 }, { x: cx + t * ch2BoxW.current, y: cy + bh + 12 }
-                        ];
-                        const velMap = [{ x: 4.5 * spd, y: 0 }, { x: -4.5 * spd, y: 0 }, { x: 0, y: 4.5 * spd }, { x: 0, y: -4.5 * spd }];
-                        const dmg = 12; // Ahora hacen daño para poder bloquearse
-                        bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#22c55e', isEnemy: true, damage: dmg, lifetime: 200 });
-                    }
-                }
-            } else if (b.phase >= 2) {
-                // Blue soul + platforms
-                ch2SoulColor.current = b.phase === 3
-                    ? (['RED', 'BLUE', 'GREEN'][Math.floor(ch2ColorPhaseTimer.current / 90) % 3] as SoulColor)
-                    : 'BLUE';
-                if (b.phase === 3) { ch2ColorPhaseTimer.current++; b.activeEffect = `🌈 MULTICOLOR - ${ch2SoulColor.current}`; }
-                else b.activeEffect = '💙 ALMA AZUL - Gravedad intensa';
+            const attack = getAttackName('ALCHEMIST');
+            b.activeEffect = `🧪 BREW: ${attack}`;
 
-                // Platforms (non-damaging horizontal bones)
-                if (b.attackTimer % 150 === 0) {
-                    const platY = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.5;
-                    bullets.current.push({ pos: { x: CH2_BOX.cx, y: platY }, vel: { x: 0, y: 0 }, size: 5, color: '#7c3aed', isEnemy: false, damage: 0, lifetime: 200, isBone: true, boneWidth: 90, boneHeight: 10 });
-                }
-                // Attack bullets
-                if (b.attackTimer % Math.round(30 / spd) === 0) {
-                    if (ch2SoulColor.current === 'GREEN') {
-                        const side = Math.floor(Math.random() * 4);
-                        const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
-                        const posMap = [
-                            { x: cx - bw - 12, y: cy }, { x: cx + bw + 12, y: cy },
-                            { x: cx, y: cy - bh - 12 }, { x: cx, y: cy + bh + 12 }
-                        ];
-                        const velMap = [{ x: 5.5 * spd, y: 0 }, { x: -5.5 * spd, y: 0 }, { x: 0, y: 5.5 * spd }, { x: 0, y: -5.5 * spd }];
-                        bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#22c55e', isEnemy: true, damage: 15, lifetime: 200 });
-                    } else {
-                        const angle = Math.random() * Math.PI * 2;
-                        bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(angle) * 200, y: CH2_BOX.cy + Math.sin(angle) * 80 }, vel: { x: Math.cos(angle + Math.PI) * 5 * spd, y: Math.sin(angle + Math.PI) * 5 * spd }, size: 8, color: '#7c3aed', isEnemy: true, damage: 12, lifetime: 150 });
+            if (attack === 'POTION_THROW') {
+                b.boxState = 'EXPANDING';
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(50 / spd) === 0) {
+                    const isP = trySpawnParry(b.pos.x, b.pos.y, (p.pos.x - b.pos.x) * 0.02, (p.pos.y - b.pos.y) * 0.02);
+                    if (!isP) {
+                        bullets.current.push({ pos: { x: b.pos.x, y: b.pos.y }, vel: { x: (p.pos.x - b.pos.x) * 0.02, y: -4 }, size: 12, color: '#a855f7', isEnemy: true, damage: 15, lifetime: 200, effect: 'GAS' });
                     }
+                }
+            } else if (attack === 'TOXIC_FLOOR') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(200 / spd) === 0) {
+                    bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy + ch2BoxH.current / 4 }, vel: { x: 0, y: 0 }, size: 8, color: '#22c55e', isEnemy: true, damage: 20, lifetime: 180, isBone: true, boneWidth: ch2BoxW.current * 0.8, boneHeight: ch2BoxH.current * 0.5, boneColor: 'WHITE' });
+                }
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy - ch2BoxH.current / 2 }, vel: { x: 0, y: 0 }, size: 5, color: '#fcd34d', isEnemy: false, damage: 0, lifetime: 160, isBone: true, boneWidth: 40, boneHeight: 10 }); // Friendly platform
+                }
+            } else if (attack === 'ICE_SHARDS') {
+                ch2SoulColor.current = 'GREEN';
+                if (b.customAttackTimer % Math.round(25 / spd) === 0) {
+                    const side = Math.floor(Math.random() * 4);
+                    const cx = CH2_BOX.cx, cy = CH2_BOX.cy, bw = ch2BoxW.current / 2, bh = ch2BoxH.current / 2;
+                    const posMap = [{ x: cx - bw, y: cy }, { x: cx + bw, y: cy }, { x: cx, y: cy - bh }, { x: cx, y: cy + bh }];
+                    const velMap = [{ x: 5 * spd, y: 0 }, { x: -5 * spd, y: 0 }, { x: 0, y: 5 * spd }, { x: 0, y: -5 * spd }];
+                    bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 7, color: '#38bdf8', isEnemy: true, damage: 15, lifetime: 200, effect: 'FREEZE' });
+                }
+            } else if (attack === 'SOUL_CONFUSION') {
+                b.boxState = 'SHRINKING';
+                if (b.customAttackTimer % 120 === 0) {
+                    ch2SoulColor.current = ['RED', 'BLUE', 'GREEN'][Math.floor(Math.random() * 3)] as SoulColor;
+                    hudGlitch.current = 5;
+                }
+                if (b.customAttackTimer % Math.round(20 / spd) === 0) {
+                    const ang = Math.random() * Math.PI * 2;
+                    trySpawnParry(CH2_BOX.cx + Math.cos(ang) * 150, CH2_BOX.cy + Math.sin(ang) * 150, Math.cos(ang + Math.PI) * 4 * spd, Math.sin(ang + Math.PI) * 4 * spd) ||
+                        bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(ang) * 150, y: CH2_BOX.cy + Math.sin(ang) * 150 }, vel: { x: Math.cos(ang + Math.PI) * 4 * spd, y: Math.sin(ang + Math.PI) * 4 * spd }, size: 8, color: '#a855f7', isEnemy: true, damage: 15, lifetime: 200 });
                 }
             }
         }
 
         // ── SINFONÍA DEL VACÍO ───────────────────────────
         else if (b.type === BossType.CH2_DIRECTOR) {
-            if (b.phase === 1) {
-                // Delayed bullets: warn then fire
-                if (b.attackTimer % 60 === 0) {
-                    const tx = p.pos.x; const ty = p.pos.y;
-                    spawnParticles({ x: tx, y: ty }, '#475569', 4, 1);
-                    setTimeout(() => {
-                        if (!boss.current) return;
-                        const ang = Math.atan2(ty - CH2_BOX.cy, tx - CH2_BOX.cx);
-                        for (let i = -1; i <= 1; i++) {
-                            bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy - 30 }, vel: { x: Math.cos(ang + i * 0.25) * 5.5 * spd, y: Math.sin(ang + i * 0.25) * 5.5 * spd }, size: 7, color: '#1e293b', isEnemy: true, damage: 12, lifetime: 200 });
-                        }
-                    }, 500);
+            const attack = getAttackName('DIRECTOR');
+            b.activeEffect = `🎵 MEASURE: ${attack}`;
+
+            if (attack === 'RHYTHM_BEATS') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(45 / spd) === 0) {
+                    const beatPos = CH2_BOX.cx + (Math.floor(Math.random() * 5) - 2) * 30;
+                    bullets.current.push({ pos: { x: beatPos, y: CH2_BOX.cy - ch2BoxH.current / 2 - 20 }, vel: { x: 0, y: 6 * spd }, size: 10, color: '#e2e8f0', isEnemy: true, damage: 20, lifetime: 120, effect: 'BOUNCE', maxBounces: 2 });
                 }
-            }
-            if (b.phase >= 2) {
-                // Bouncing bullets
-                if (b.attackTimer % Math.round(25 / spd) === 0) {
-                    const ang = Math.random() * Math.PI * 2;
-                    const s = 4 * spd;
-                    bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * 30, y: CH2_BOX.cy }, vel: { x: Math.cos(ang) * s, y: Math.sin(ang) * s }, size: 7, color: '#475569', isEnemy: true, damage: 12, lifetime: 800, bounces: 0, maxBounces: b.phase === 3 ? 999 : 6 });
+            } else if (attack === 'SOUND_WAVES') {
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(90 / spd) === 0) {
+                    for (let i = 0; i < 3; i++) {
+                        bullets.current.push({ pos: { x: CH2_BOX.cx - ch2BoxW.current / 2 - 20, y: p.pos.y + (i - 1) * 30 }, vel: { x: 4 * spd, y: 0 }, size: 8, color: '#475569', isEnemy: true, damage: 15, lifetime: 200, effect: 'WAVE' });
+                    }
                 }
-            }
-            if (b.phase >= 3) {
-                // Box shrinks
-                ch2BoxW.current = Math.max(96, ch2BoxW.current - 0.05);
-                ch2BoxH.current = Math.max(64, ch2BoxH.current - 0.03);
-                b.activeEffect = `📦 BOX: ${Math.round(ch2BoxW.current)}×${Math.round(ch2BoxH.current)}`;
+            } else if (attack === 'BOX_COMPRESSION') {
+                b.boxState = 'SHRINKING';
+                ch2SoulColor.current = 'GREEN';
+                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
+                    trySpawnParry(CH2_BOX.cx + (Math.random() - 0.5) * 100, CH2_BOX.cy - ch2BoxH.current, 0, 5) ||
+                        bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * 100, y: CH2_BOX.cy - ch2BoxH.current }, vel: { x: 0, y: 5 }, size: 8, color: '#facc15', isEnemy: true, damage: 20, lifetime: 200 });
+                }
+            } else if (attack === 'CRESCENDO') {
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(15 / spd) === 0) {
+                    const a = b.customAttackTimer * 0.1;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(a) * 30, y: CH2_BOX.cy + Math.sin(a) * 30 }, vel: { x: Math.cos(a) * 5 * spd, y: Math.sin(a) * 5 * spd }, size: 6, color: '#94a3b8', isEnemy: true, damage: 12, lifetime: 150 });
+                }
             }
         }
 
         // ── LA ENTIDAD ───────────────────────────────────
         else if (b.type === BossType.CH2_ENTITY) {
-            if (b.phase >= 1) {
-                // Petal spiral
-                if (b.attackTimer % Math.round(4 / spd) === 0) {
-                    const ang = b.attackTimer * 0.12;
-                    for (let i = 0; i < 5; i++) {
-                        const a = ang + (Math.PI * 2 / 5) * i;
-                        bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(a) * 55, y: CH2_BOX.cy + Math.sin(a) * 35 }, vel: { x: Math.cos(a) * 3.5 * spd, y: Math.sin(a) * 3.5 * spd }, size: 8, color: '#ec4899', isEnemy: true, damage: 10, lifetime: 140 });
-                    }
+            const attack = getAttackName('ENTITY');
+            b.activeEffect = `ERR: ${attack}`;
+
+            if (attack === 'GLITCH_STORM') {
+                ch2SoulColor.current = 'RED';
+                ch2GlitchIntensity.current = 10;
+                if (b.customAttackTimer % Math.round(10 / spd) === 0) {
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy - ch2BoxH.current / 2 }, vel: { x: (Math.random() - 0.5) * 2, y: 5 * spd }, size: 6, color: '#ec4899', isEnemy: true, damage: 15, lifetime: 100, effect: 'REALITY_BREAK' });
                 }
-            }
-            if (b.phase >= 2) {
-                ch2GlitchIntensity.current = 6;
-                hudGlitch.current = Math.max(hudGlitch.current, 4);
-                // Attacks from OUTSIDE the box
-                if (b.attackTimer % Math.round(18 / spd) === 0) {
-                    const side = Math.floor(b.attackTimer / 5) % 4;
-                    const off = (Math.random() - 0.5) * 60;
-                    const posArr = [{ x: 0, y: p.pos.y + off }, { x: CANVAS_WIDTH, y: p.pos.y + off }, { x: p.pos.x + off, y: 0 }, { x: p.pos.x + off, y: CANVAS_HEIGHT }];
-                    const velArr = [{ x: 6 * spd, y: 0 }, { x: -6 * spd, y: 0 }, { x: 0, y: 6 * spd }, { x: 0, y: -6 * spd }];
-                    bullets.current.push({ pos: posArr[side], vel: velArr[side], size: 9, color: '#f43f5e', isEnemy: true, damage: 15, lifetime: 200 });
+            } else if (attack === 'TELEPORT_STRIKE') {
+                ch2SoulColor.current = 'GREEN';
+                if (b.customAttackTimer % Math.round(90 / spd) === 0) {
+                    spawnParticles(b.pos, '#fff', 20, 5);
+                    b.pos = { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 1.5, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 1.5 };
+                    bullets.current.push({ pos: { ...b.pos }, vel: { x: 0, y: 0 }, size: 30, color: '#f43f5e', isEnemy: true, damage: 25, lifetime: 60, isBlaster: true, blasterTimer: 30, blasterPhase: 'WARN' });
                 }
-            }
-            if (b.phase >= 3) {
-                ch2GlitchIntensity.current = 18;
-                hudGlitch.current = Math.max(hudGlitch.current, 12);
-                b.activeEffect = 'GLITCH TOTAL';
-                // Dense wave - 95% coverage
-                if (b.attackTimer % 2 === 0) {
-                    const ang = (b.attackTimer * 0.14) % (Math.PI * 2);
-                    for (let i = 0; i < 9; i++) {
-                        const a = ang + (Math.PI * 2 / 9) * i;
-                        bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy }, vel: { x: Math.cos(a) * 5.5 * spd, y: Math.sin(a) * 5.5 * spd }, size: 8, color: '#ff007c', isEnemy: true, damage: 15, lifetime: 110 });
-                    }
+            } else if (attack === 'FAKE_BULLETS') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(20 / spd) === 0) {
+                    const isFake = Math.random() > 0.5;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + ch2BoxW.current / 2 + 20, y: p.pos.y + (Math.random() - 0.5) * 20 }, vel: { x: -6 * spd, y: 0 }, size: 8, color: isFake ? 'rgba(236,72,153,0.2)' : '#ec4899', isEnemy: true, damage: isFake ? 0 : 20, lifetime: 150 });
+                }
+            } else if (attack === 'BOX_SHIFT') {
+                b.boxState = 'MOVING';
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    trySpawnParry(CH2_BOX.cx, CH2_BOX.cy, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5) ||
+                        bullets.current.push({ pos: { x: CH2_BOX.cx, y: CH2_BOX.cy }, vel: { x: (Math.random() - 0.5) * 5 * spd, y: (Math.random() - 0.5) * 5 * spd }, size: 10, color: '#f43f5e', isEnemy: true, damage: 20, lifetime: 150 });
                 }
             }
         }
 
         // ── SKELETON KING ────────────────────────────────
         else if (b.type === BossType.CH2_SKELETON_KING) {
-            // KR drain
+            const attack = getAttackName('SKELETON_KING');
+            b.activeEffect = `☠ KR: ${Math.round(p.krDamageAccumalator)} | ${attack}`;
+
             if (p.krDamageAccumalator > 0 && frameCount.current % 30 === 0) {
                 p.hp = Math.max(1, p.hp - p.krDamageAccumalator * 0.15);
             }
 
-            if (b.phase >= 1) {
-                b.activeEffect = `☠ KR ACTIVO: ${Math.round(p.krDamageAccumalator)} veneno`;
-                // Gaster Blasters
-                if (b.attackTimer % Math.round(100 / spd) === 0) {
-                    const isH = Math.random() > 0.5;
-                    const pos = isH
-                        ? { x: CH2_BOX.cx - ch2BoxW.current / 2 - 40, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.7 }
-                        : { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.7, y: CH2_BOX.cy - ch2BoxH.current / 2 - 40 };
-                    bullets.current.push({ pos, vel: { x: 0, y: 0 }, size: 20, color: '#94a3b8', isEnemy: true, damage: 30, lifetime: 100, isBlaster: true, blasterTimer: 70, blasterPhase: 'WARN' });
+            if (attack === 'BONE_CAGE') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(60 / spd) === 0) {
+                    const posTop = { x: p.pos.x, y: CH2_BOX.cy - ch2BoxH.current / 2 - 20 };
+                    const posBot = { x: p.pos.x, y: CH2_BOX.cy + ch2BoxH.current / 2 + 20 };
+                    bullets.current.push({ pos: posTop, vel: { x: 0, y: 3 * spd }, size: 8, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 100, isBone: true, boneWidth: 20, boneHeight: 60, boneColor: 'WHITE' });
+                    bullets.current.push({ pos: posBot, vel: { x: 0, y: -3 * spd }, size: 8, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 100, isBone: true, boneWidth: 20, boneHeight: 60, boneColor: 'WHITE' });
                 }
-                // Bone rain
-                if (b.attackTimer % Math.round(22 / spd) === 0) {
-                    const fromL = Math.random() > 0.5;
-                    const yPos = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.85;
-                    bullets.current.push({ pos: { x: fromL ? CH2_BOX.cx - ch2BoxW.current / 2 - 40 : CH2_BOX.cx + ch2BoxW.current / 2 + 40, y: yPos }, vel: { x: (fromL ? 1 : -1) * 7 * spd, y: 0 }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 120, isBone: true, boneWidth: 55, boneHeight: 14, boneColor: 'WHITE' });
+            } else if (attack === 'GIGA_BLASTER') {
+                b.boxState = 'EXPANDING';
+                ch2SoulColor.current = 'RED';
+                if (b.customAttackTimer % Math.round(100 / spd) === 0) {
+                    bullets.current.push({ pos: { x: CH2_BOX.cx - ch2BoxW.current / 2 - 50, y: p.pos.y }, vel: { x: 0, y: 0 }, size: 40, color: '#94a3b8', isEnemy: true, damage: 30, lifetime: 120, isBlaster: true, blasterTimer: 80, blasterPhase: 'WARN' });
                 }
-            }
-            if (b.phase >= 2) {
-                b.activeEffect = `☠ KR: ${Math.round(p.krDamageAccumalator)} | ¡ATACANDO EL MENÚ!`;
-                if (b.attackTimer % Math.round(8 / spd) === 0) {
-                    const xPos = CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.9;
-                    bullets.current.push({ pos: { x: xPos, y: CH2_BOX.cy - ch2BoxH.current / 2 - 30 }, vel: { x: 0, y: 6 * spd }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 100, isBone: true, boneWidth: 14, boneHeight: 65, boneColor: 'WHITE' });
+            } else if (attack === 'SWORD_SLASH') {
+                ch2SoulColor.current = 'GREEN';
+                if (b.customAttackTimer % Math.round(20 / spd) === 0) {
+                    const a = Math.random() * Math.PI * 2;
+                    bullets.current.push({ pos: { x: CH2_BOX.cx + Math.cos(a) * 100, y: CH2_BOX.cy + Math.sin(a) * 100 }, vel: { x: -Math.cos(a) * 6 * spd, y: -Math.sin(a) * 6 * spd }, size: 8, color: '#f1f5f9', isEnemy: true, damage: 20, lifetime: 100, isBone: true, boneWidth: 40, boneHeight: 10, boneColor: 'ORANGE' });
                 }
-            }
-            if (b.phase >= 3) {
-                b.activeEffect = '💀 ¡EL FIN! Sin piedad.';
-                b.forceNoIframes = true;
-                // Soul teleport every 90 frames
-                if (b.attackTimer % 90 === 0) {
-                    spawnParticles(p.pos, '#ef4444', 8, 5);
-                    p.pos.x = CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current * 0.6;
-                    p.pos.y = CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current * 0.6;
-                }
-                // Relentless from all box edges
-                if (b.attackTimer % Math.round(4 / spd) === 0) {
-                    const ang = (b.attackTimer * 0.18) % (Math.PI * 2);
-                    for (let i = 0; i < 4; i++) {
-                        const a = ang + (Math.PI * 2 / 4) * i;
-                        const edge = i % 4;
-                        const epos = [
-                            { x: CH2_BOX.cx - ch2BoxW.current / 2, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current },
-                            { x: CH2_BOX.cx + ch2BoxW.current / 2, y: CH2_BOX.cy + (Math.random() - 0.5) * ch2BoxH.current },
-                            { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy - ch2BoxH.current / 2 },
-                            { x: CH2_BOX.cx + (Math.random() - 0.5) * ch2BoxW.current, y: CH2_BOX.cy + ch2BoxH.current / 2 }
-                        ][edge];
-                        const dx = p.pos.x - epos.x; const dy = p.pos.y - epos.y;
-                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                        bullets.current.push({ pos: epos, vel: { x: dx / dist * 7 * spd, y: dy / dist * 7 * spd }, size: 7, color: '#f1f5f9', isEnemy: true, damage: 20, lifetime: 140, isBone: true, boneWidth: 14, boneHeight: 55, boneColor: 'WHITE' });
+            } else if (attack === 'PARRY_ORBS') {
+                ch2SoulColor.current = 'BLUE';
+                if (b.customAttackTimer % Math.round(40 / spd) === 0) {
+                    if (!trySpawnParry(CH2_BOX.cx + ch2BoxW.current / 2, p.pos.y - 20, -5 * spd, -3)) {
+                        bullets.current.push({ pos: { x: CH2_BOX.cx + ch2BoxW.current / 2, y: p.pos.y }, vel: { x: -5 * spd, y: 0 }, size: 8, color: '#f1f5f9', isEnemy: true, damage: 15, lifetime: 120, isBone: true, boneWidth: 20, boneHeight: 40, boneColor: 'BLUE' });
                     }
                 }
             }
