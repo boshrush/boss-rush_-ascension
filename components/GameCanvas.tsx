@@ -4232,19 +4232,6 @@ export const GameCanvas: React.FC = () => {
 
             if (ch2GlitchIntensity.current > 0) ch2GlitchIntensity.current *= 0.9;
 
-            // --- INDICADOR DE LA BRECHA (VISIBLE) ---
-            if (currentBossIndex.current === 5 && isAdminAuthenticated.current) {
-                ctx.fillStyle = frameCount.current % 60 < 30 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(239, 68, 68, 0.3)';
-                ctx.fillRect(421, 384, 3, 3); // Punto rojo visible
-
-                // Confirmación clara
-                if (Math.abs(player.current.pos.x - 422) < 2 && Math.abs(player.current.pos.y - 385) < 2) {
-                    ctx.fillStyle = '#ef4444';
-                    ctx.font = 'bold 10px monospace';
-                    ctx.textAlign = 'left';
-                    ctx.fillText("BRECHA ACTIVA", 435, 388);
-                }
-            }
         }
 
         ctx.restore();
@@ -4544,37 +4531,6 @@ export const GameCanvas: React.FC = () => {
                             <div className="flex items-center gap-2"><Skull size={16} /> Shoot: Click / J</div>
                             <div className="flex items-center gap-2"><Target size={16} /> Ability: R-Click / K</div>
                         </div>
-
-                        <button
-                            onClick={() => setShowPasswordModal(true)}
-                            className="absolute bottom-4 right-4 text-slate-600 hover:text-white transition-colors"
-                        >
-                            <Lock size={16} />
-                        </button>
-
-                        {showPasswordModal && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50">
-                                <div className="bg-slate-900 border border-slate-700 p-8 rounded shadow-2xl flex flex-col gap-4 w-96">
-                                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                                        <Lock size={20} className="text-cyan-400" /> Security Clearance
-                                    </h3>
-                                    <input
-                                        type="password"
-                                        value={passwordInput}
-                                        onChange={(e) => setPasswordInput(e.target.value)}
-                                        placeholder="Enter Access Code"
-                                        className="bg-black border border-slate-600 p-3 text-white focus:outline-none focus:border-cyan-500 font-mono tracking-widest"
-                                        onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
-                                        autoFocus
-                                    />
-                                    {loginError && <span className="text-red-500 text-xs">ACCESS DENIED</span>}
-                                    <div className="flex justify-end gap-2">
-                                        <button onClick={() => { setShowPasswordModal(false); setLoginError(false); setPasswordInput(''); }} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
-                                        <button onClick={handleAdminLogin} className="px-4 py-2 bg-cyan-900 text-cyan-100 hover:bg-cyan-700">Login</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 )}
 
