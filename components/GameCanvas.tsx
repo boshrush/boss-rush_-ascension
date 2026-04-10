@@ -159,31 +159,7 @@ export const GameCanvas: React.FC = () => {
     const [godModeEnabled, setGodModeEnabled] = useState(false);
     const [chapter3Unlocked, setChapter3Unlocked] = useState(() => localStorage.getItem('boss_rush_chapter3_unlocked') === 'true');
     const isAdminAuthenticated = useRef(false);
-    const secretRiftActive = useRef(false);
-    const secretSequence = useRef<string[]>([]);
     const ch1SecondarySeenCount = useRef(0);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const target = ['DOWN', 'DOWN', 'RIGHT', 'RIGHT', 'UP'];
-            let key = '';
-            if (e.code === 'ArrowDown' || e.code === 'KeyS') key = 'DOWN';
-            if (e.code === 'ArrowRight' || e.code === 'KeyD') key = 'RIGHT';
-            if (e.code === 'ArrowUp' || e.code === 'KeyW') key = 'UP';
-
-            if (key) {
-                secretSequence.current.push(key);
-                if (secretSequence.current.length > target.length) {
-                    secretSequence.current.shift();
-                }
-                if (JSON.stringify(secretSequence.current) === JSON.stringify(target)) {
-                    secretRiftActive.current = true;
-                }
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
 
     useEffect(() => {
         // Check persistence
@@ -1856,28 +1832,6 @@ export const GameCanvas: React.FC = () => {
                     bullets.current.push({ pos: posMap[side], vel: velMap[side], size: 8, color: '#22c55e', isEnemy: true, damage: 20, lifetime: 200 });
                 }
             }
-
-            // --- MAGNET EFFECT FOR SECRET RIFT ---
-            if (secretRiftActive.current) {
-                const riftX = CH2_BOX.cx + ch2BoxOffsetX.current;
-                const riftY = CH2_BOX.cy;
-                const pullStr = 0.5; // Magnet pull strength
-
-                bullets.current.forEach(bul => {
-                    if (bul.isEnemy || bul.isBone) {
-                        const drx = riftX - bul.pos.x;
-                        const dry = riftY - bul.pos.y;
-                        const distRift = Math.sqrt(drx * drx + dry * dry);
-                        if (distRift > 10 && distRift < 300) {
-                            bul.vel.x += (drx / distRift) * pullStr;
-                            bul.vel.y += (dry / distRift) * pullStr;
-                        }
-                    }
-                });
-
-                const distPlayerRift = Math.sqrt((p.pos.x - riftX) ** 2 + (p.pos.y - riftY) ** 2);
-                if (distPlayerRift < 20) p.invincibilityTimer = 2;
-            }
         }
 
         // ── EL ALQUIMISTA DE PÍXELES ─────────────────────
@@ -2586,8 +2540,8 @@ export const GameCanvas: React.FC = () => {
 
         } // Fin del bloque de físicas (Soul o Ship)
 
-        // --- AYUDA PARA LA BRECHA (GLOBAL) ---
-        if ((isAdminAuthenticated.current || secretRiftActive.current) && currentBossIndex.current === 5) {
+        // --- AYUDA PARA EL ADMIN (GLOBAL) ---
+        if (isAdminAuthenticated.current && currentBossIndex.current === 5) {
             const safeX = 422 + ch2BoxOffsetX.current;
             const safeY = 385;
             const distToSafe = Math.sqrt((player.current.pos.x - safeX) ** 2 + (player.current.pos.y - safeY) ** 2);
@@ -2935,7 +2889,7 @@ export const GameCanvas: React.FC = () => {
                     const safeX = 422 + ch2BoxOffsetX.current;
                     const safeY = 385;
                     const inSafeSpot = Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 15;
-                    if (hit && inSafeSpot && (isAdminAuthenticated.current || secretRiftActive.current)) hit = false;
+                    if (hit && inSafeSpot && isAdminAuthenticated.current) hit = false;
 
                     if (hit && (p.invincibilityTimer <= 0 || boss.current?.forceNoIframes)) {
                         p.hp -= b.damage * Math.pow(3, newGamePlusCount.current);
@@ -2995,7 +2949,7 @@ export const GameCanvas: React.FC = () => {
                 const safeX = 422 + ch2BoxOffsetX.current;
                 const safeY = 385;
                 const inSafeSpot = Math.sqrt((p.pos.x - safeX) ** 2 + (p.pos.y - safeY) ** 2) < 15;
-                if (hit && inSafeSpot && (isAdminAuthenticated.current || secretRiftActive.current)) {
+                if (hit && inSafeSpot && isAdminAuthenticated.current) {
                     hit = false; // Inmunidad total en el radio de la brecha
                 }
 
@@ -3282,7 +3236,7 @@ export const GameCanvas: React.FC = () => {
         if (isTimeStopped) {
             ctx.filter = 'grayscale(100%) brightness(1.2) contrast(0.8)';
         }
-        const isRiftActive = currentBossIndex.current === 5 && (isAdminAuthenticated.current || secretRiftActive.current);
+        const isRiftActive = currentBossIndex.current === 5 && isAdminAuthenticated.current;
         const distToRift = isRiftActive ? Math.sqrt((p.pos.x - (422 + ch2BoxOffsetX.current)) ** 2 + (p.pos.y - 385) ** 2) : 999;
         const isInRiftSafeZone = isRiftActive && distToRift < 18;
 
@@ -4078,38 +4032,6 @@ export const GameCanvas: React.FC = () => {
             ctx.lineWidth = 3;
             ctx.strokeRect(bx - bw / 2 + gx, by - bh / 2 + gy, bw, bh);
 
-            // Draw Secret Rift if active and Boss 1
-            if (secretRiftActive.current && boss.current?.type === BossType.CH2_GUARDIAN) {
-                ctx.save();
-                const riftRad = 15 + Math.sin(frameCount.current * 0.1) * 3;
-
-                // Outer glow
-                const grad = ctx.createRadialGradient(bx, by, riftRad * 0.5, bx, by, riftRad * 2);
-                grad.addColorStop(0, 'rgba(168, 85, 247, 0.8)'); // Purple glow
-                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                ctx.arc(bx, by, riftRad * 2, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Inner black hole
-                ctx.fillStyle = '#000';
-                ctx.beginPath();
-                ctx.arc(bx, by, riftRad, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Swirling particles
-                ctx.strokeStyle = '#a855f7';
-                ctx.lineWidth = 2;
-                for (let i = 0; i < 3; i++) {
-                    const ang = frameCount.current * 0.05 + (i * Math.PI * 2 / 3);
-                    const dist = riftRad + 5 + Math.cos(frameCount.current * 0.1 + i) * 5;
-                    ctx.beginPath();
-                    ctx.arc(bx + Math.cos(ang) * dist, by + Math.sin(ang) * dist, 2, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-                ctx.restore();
-            }
 
             // Draw Ch2 Boss
             const cb = boss.current;
